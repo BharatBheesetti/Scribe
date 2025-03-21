@@ -2,7 +2,8 @@
 
 Scribe is a privacy-focused desktop application for recording and transcribing audio directly on your computer. No cloud services, no data sharing, complete privacy.
 
-![Scribe Application](https://github.com/BharatBheesetti/Scribe/assets/your-user-id/scribe-preview.png)
+
+![scribe_social_preview](https://github.com/user-attachments/assets/98616594-8dfe-441b-a58c-e123330a3a1d)
 
 ## Features
 
