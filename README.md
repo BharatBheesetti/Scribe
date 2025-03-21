@@ -10,7 +10,7 @@ Scribe is a privacy-focused desktop application for recording and transcribing a
 - **100% Local Processing** - All transcription happens on your machine
 - **Privacy First** - Your audio never leaves your computer
 - **Simple Interface** - Clean, dark-themed UI that's easy to use
-- **Multiple Models** - Choose from tiny to medium-sized models based on your needs
+- **Multiple Models** - Choose from multiple transcription models
 - **Fast Transcription** - Powered by faster-whisper for efficient processing
 - **Format Options** - Export transcripts as TXT, JSON, or SRT subtitles
 
@@ -63,4 +63,4 @@ The first time you run Scribe, it will offer to download the tiny model (~75MB).
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the MIT License
