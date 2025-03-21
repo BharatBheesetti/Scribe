@@ -1,75 +1,65 @@
-# Scribe - Audio Transcription Application
+# Scribe - Secure Local Audio Transcription
 
-A desktop application for recording and transcribing audio using faster-whisper.
+Scribe is a privacy-focused desktop application for recording and transcribing audio directly on your computer. No cloud services, no data sharing, complete privacy.
 
-## System Requirements
-
-- Python 3.8 or higher
-- Windows 10/11
-- Microphone or audio input device
-- 4GB RAM minimum (8GB recommended)
-- 2GB free disk space
-
-## Python Package Requirements
-
-- faster-whisper>=0.9.0
-- torch>=2.0.0
-- requests>=2.28.0
-- sounddevice>=0.4.6
-- numpy>=1.24.0
-
-## Installation
-
-1. Clone the repository:
-```bash
-git clone https://github.com/yourusername/scribe.git
-cd scribe
-```
-
-2. Create and activate a virtual environment:
-```bash
-python -m venv venv
-.\venv\Scripts\activate  # Windows
-source venv/bin/activate  # Linux/Mac
-```
-
-3. Install dependencies:
-```bash
-pip install -r requirements.txt
-```
-
-4. Run the application:
-```bash
-python main.py
-```
-
-## Building from Source
-
-To build a standalone executable:
-
-```bash
-python build.py
-```
-
-This will create a standalone executable in the `dist/Scribe` directory.
-
-## Usage
-
-1. Launch the application
-2. Click "Record" to start recording audio
-3. Speak into your microphone
-4. Click "Stop" to end recording
-5. The audio will be automatically transcribed
-6. View and edit the transcription in the text area
+![Scribe Application](https://github.com/BharatBheesetti/Scribe/assets/your-user-id/scribe-preview.png)
 
 ## Features
 
-- Real-time audio recording
-- High-quality transcription using faster-whisper
-- Simple and intuitive interface
-- Support for multiple languages
-- Export transcriptions to text files
+- **100% Local Processing** - All transcription happens on your machine
+- **Privacy First** - Your audio never leaves your computer
+- **Simple Interface** - Clean, dark-themed UI that's easy to use
+- **Multiple Models** - Choose from tiny to medium-sized models based on your needs
+- **Fast Transcription** - Powered by faster-whisper for efficient processing
+- **Format Options** - Export transcripts as TXT, JSON, or SRT subtitles
+
+## Quick Start
+
+1. **Install Python**: Make sure you have Python 3.8+ installed
+2. **Clone the repo**:
+   ```
+   git clone https://github.com/BharatBheesetti/Scribe.git
+   cd Scribe
+   ```
+3. **Set up virtual environment**:
+   ```
+   python -m venv venv
+   .\venv\Scripts\activate  # Windows
+   source venv/bin/activate  # Linux/Mac
+   ```
+4. **Install dependencies**:
+   ```
+   pip install -r requirements.txt
+   ```
+5. **Run Scribe**:
+   ```
+   python main.py
+   ```
+
+The first time you run Scribe, it will offer to download the tiny model (~75MB). For better accuracy, you can download larger models from the Tools menu.
+
+## System Requirements
+
+- Windows 10/11 (macOS and Linux support coming soon)
+- Python 3.8 or higher
+- 4GB RAM minimum (8GB recommended)
+- 2GB free disk space
+- Microphone for recording
+
+## Why Scribe?
+
+- **Privacy**: No internet connection needed for transcription
+- **Control**: You choose which model to use and where files are stored
+- **Security**: Your sensitive audio never leaves your computer
+- **Simplicity**: No accounts, no subscriptions, no complications
+
+## Tech Stack
+
+- **UI**: Tkinter with custom styling
+- **Audio Processing**: sounddevice + wave
+- **Transcription Engine**: faster-whisper
+- **Models**: Compatible with Whisper models from tiny to large
 
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
