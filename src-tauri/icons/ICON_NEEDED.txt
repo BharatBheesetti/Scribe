@@ -1,0 +1,8 @@
+You need to create a 32x32 PNG icon named "icon.png" in this directory.
+
+For a quick placeholder, you can:
+1. Create a simple microphone icon using any image editor
+2. Or download a free icon from https://icons8.com/ or similar
+3. Save it as "icon.png" (32x32 pixels minimum)
+
+The app won't build without this icon file.

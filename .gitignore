@@ -1,0 +1,14 @@
+node_modules/
+dist/
+target/
+venv/
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+.env
+*.exe
+*.dll
+nul
+.DS_Store
+Thumbs.db
