@@ -3,6 +3,7 @@
 
 mod audio;
 mod hotkey;
+mod overlay;
 mod tray;
 mod transcribe;
 mod typing;
@@ -59,6 +60,11 @@ fn main() {
                     let mut recorder = state.recorder.lock().unwrap();
                     if let Ok(()) = recorder.start_recording() {
                         let _ = tray::update_tray_state(&app_handle, tray::TrayState::Recording);
+                        overlay::show_recording(&app_handle);
+                        // Register Escape only while recording
+                        if let Err(e) = hotkey::register_escape(&app_handle) {
+                            eprintln!("Failed to register escape hotkey: {}", e);
+                        }
                     }
                 });
             });
@@ -68,6 +74,11 @@ fn main() {
                 let app_handle = app_handle.clone();
                 tauri::async_runtime::spawn(async move {
                     let state: tauri::State<AppState> = app_handle.state();
+
+                    // Unregister Escape now that recording is stopping
+                    if let Err(e) = hotkey::unregister_escape(&app_handle) {
+                        eprintln!("Failed to unregister escape hotkey: {}", e);
+                    }
 
                     // Stop recording
                     let audio_path = {
@@ -80,12 +91,14 @@ fn main() {
                         Err(e) => {
                             eprintln!("Recording error: {}", e);
                             let _ = tray::update_tray_state(&app_handle, tray::TrayState::Idle);
+                            overlay::hide(&app_handle);
                             return;
                         }
                     };
 
                     // Update tray to processing
                     let _ = tray::update_tray_state(&app_handle, tray::TrayState::Processing);
+                    overlay::show_processing(&app_handle);
 
                     // Transcribe
                     let result = {
@@ -117,6 +130,9 @@ fn main() {
                                 .body(preview)
                                 .show()
                                 .ok();
+
+                            // Show done overlay (auto-hides after 800ms)
+                            overlay::show_done(&app_handle);
                         }
                         Err(e) => {
                             eprintln!("Transcription error: {}", e);
@@ -127,6 +143,9 @@ fn main() {
                                 .body("Try again.")
                                 .show()
                                 .ok();
+
+                            // Hide overlay on error
+                            overlay::hide(&app_handle);
                         }
                     }
 
@@ -140,9 +159,16 @@ fn main() {
                 let app_handle = app_handle.clone();
                 tauri::async_runtime::spawn(async move {
                     let state: tauri::State<AppState> = app_handle.state();
+
+                    // Unregister Escape since recording is being cancelled
+                    if let Err(e) = hotkey::unregister_escape(&app_handle) {
+                        eprintln!("Failed to unregister escape hotkey: {}", e);
+                    }
+
                     let mut recorder = state.recorder.lock().unwrap();
                     recorder.cancel_recording();
                     let _ = tray::update_tray_state(&app_handle, tray::TrayState::Idle);
+                    overlay::hide(&app_handle);
 
                     app_handle
                         .notification()
