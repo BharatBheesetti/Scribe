@@ -7,11 +7,61 @@
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-    <div class="container">
-        <h1>Scribe Settings</h1>
-        <p>Settings UI coming soon...</p>
-        <p>Use Ctrl+Shift+Space to start recording.</p>
+    <!-- First-run setup screen -->
+    <div id="setup-screen" class="container hidden">
+        <div class="setup-wrapper">
+            <h1>Setting up Scribe</h1>
+            <p class="setup-subtitle">Downloading speech model (<span id="setup-model-size">142</span>MB)...</p>
+            <div class="progress-bar-container">
+                <div id="setup-progress-bar" class="progress-bar-fill"></div>
+            </div>
+            <p id="setup-status" class="setup-status">Connecting to service...</p>
+        </div>
     </div>
+
+    <!-- Normal settings screen -->
+    <div id="settings-screen" class="container hidden">
+        <h1>Scribe Settings</h1>
+
+        <!-- Active model section -->
+        <section class="settings-section">
+            <h2>Current Model</h2>
+            <div id="active-model-card" class="model-card active-model-card">
+                <div class="model-card-header">
+                    <span class="status-dot status-loaded"></span>
+                    <span id="active-model-name" class="model-name">--</span>
+                </div>
+                <span id="active-model-desc" class="model-description">--</span>
+            </div>
+        </section>
+
+        <!-- Hotkey section -->
+        <section class="settings-section">
+            <h2>Hotkey</h2>
+            <div class="hotkey-display">
+                <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>Space</kbd>
+            </div>
+            <p class="hotkey-hint">Press and hold to record, release to transcribe.</p>
+        </section>
+
+        <!-- Available models section -->
+        <section class="settings-section">
+            <h2>Available Models</h2>
+            <div id="model-list" class="model-list">
+                <!-- Populated by JS -->
+            </div>
+        </section>
+    </div>
+
+    <!-- Connection error overlay -->
+    <div id="error-overlay" class="container hidden">
+        <div class="setup-wrapper">
+            <h1>Scribe</h1>
+            <p class="error-message">Could not reach the Scribe service.</p>
+            <p class="setup-status">Retrying...</p>
+        </div>
+    </div>
+
     <script src="main.js" type="module"></script>
 </body>
 </html>

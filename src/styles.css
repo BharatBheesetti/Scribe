@@ -1,3 +1,7 @@
+/* ---------------------------------------------------------------------------
+   Base reset and theme
+   --------------------------------------------------------------------------- */
+
 * {
     margin: 0;
     padding: 0;
@@ -7,8 +11,9 @@
 body {
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
     background-color: #1a1a1a;
-    color: #ffffff;
+    color: #e0e0e0;
     padding: 20px;
+    min-height: 100vh;
 }
 
 .container {
@@ -16,12 +21,328 @@ body {
     margin: 0 auto;
 }
 
+.hidden {
+    display: none !important;
+}
+
 h1 {
     margin-bottom: 20px;
     color: #60a5fa;
+    font-size: 1.6rem;
+}
+
+h2 {
+    margin-bottom: 12px;
+    color: #93c5fd;
+    font-size: 1.1rem;
+    font-weight: 600;
 }
 
 p {
     margin-bottom: 10px;
     line-height: 1.6;
+}
+
+/* ---------------------------------------------------------------------------
+   First-run setup screen
+   --------------------------------------------------------------------------- */
+
+.setup-wrapper {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 60vh;
+    text-align: center;
+}
+
+.setup-wrapper h1 {
+    font-size: 1.8rem;
+    margin-bottom: 8px;
+}
+
+.setup-subtitle {
+    color: #a0a0a0;
+    font-size: 0.95rem;
+    margin-bottom: 24px;
+}
+
+/* Progress bar */
+
+.progress-bar-container {
+    width: 100%;
+    max-width: 400px;
+    height: 8px;
+    background-color: #2a2a2a;
+    border-radius: 4px;
+    overflow: hidden;
+    margin-bottom: 16px;
+}
+
+.progress-bar-fill {
+    height: 100%;
+    width: 0%;
+    background: linear-gradient(90deg, #3b82f6, #60a5fa);
+    border-radius: 4px;
+    transition: width 0.6s ease;
+    position: relative;
+}
+
+.progress-bar-fill::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: linear-gradient(
+        90deg,
+        transparent 0%,
+        rgba(255, 255, 255, 0.15) 50%,
+        transparent 100%
+    );
+    animation: shimmer 2s infinite;
+}
+
+@keyframes shimmer {
+    0%   { transform: translateX(-100%); }
+    100% { transform: translateX(100%); }
+}
+
+.setup-status {
+    color: #888;
+    font-size: 0.85rem;
+}
+
+/* ---------------------------------------------------------------------------
+   Error overlay
+   --------------------------------------------------------------------------- */
+
+.error-message {
+    color: #f87171;
+    font-size: 1rem;
+    margin-bottom: 8px;
+}
+
+/* ---------------------------------------------------------------------------
+   Settings screen sections
+   --------------------------------------------------------------------------- */
+
+.settings-section {
+    margin-bottom: 28px;
+}
+
+/* Active model highlight card */
+
+.active-model-card {
+    background: linear-gradient(135deg, #1e3a5f 0%, #1a2744 100%);
+    border: 1px solid #3b82f6;
+    border-radius: 10px;
+    padding: 16px;
+}
+
+/* ---------------------------------------------------------------------------
+   Model cards
+   --------------------------------------------------------------------------- */
+
+.model-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.model-card {
+    background-color: #222;
+    border: 1px solid #333;
+    border-radius: 8px;
+    padding: 12px 16px;
+    transition: border-color 0.2s, background-color 0.2s;
+}
+
+.model-card:hover {
+    border-color: #555;
+    background-color: #282828;
+}
+
+.model-card.model-active {
+    border-color: #3b82f6;
+    background: linear-gradient(135deg, #1e3a5f 0%, #1a2744 100%);
+}
+
+.model-card-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 4px;
+}
+
+.model-name {
+    font-weight: 600;
+    font-size: 1rem;
+    color: #fff;
+}
+
+.model-size {
+    margin-left: auto;
+    font-size: 0.8rem;
+    color: #888;
+    font-variant-numeric: tabular-nums;
+}
+
+.model-card-body {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 8px;
+}
+
+.model-description {
+    color: #aaa;
+    font-size: 0.85rem;
+}
+
+.model-status-label {
+    font-size: 0.8rem;
+    color: #888;
+    white-space: nowrap;
+}
+
+.model-card-actions {
+    display: flex;
+    justify-content: flex-end;
+}
+
+/* ---------------------------------------------------------------------------
+   Status dots
+   --------------------------------------------------------------------------- */
+
+.status-dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.status-loaded {
+    background-color: #22c55e;
+    box-shadow: 0 0 6px rgba(34, 197, 94, 0.4);
+}
+
+.status-downloaded {
+    background-color: #60a5fa;
+}
+
+.status-downloading {
+    background-color: #facc15;
+    animation: pulse-dot 1.2s ease-in-out infinite;
+}
+
+.status-available {
+    background-color: #555;
+}
+
+@keyframes pulse-dot {
+    0%, 100% { opacity: 1; }
+    50%      { opacity: 0.4; }
+}
+
+/* ---------------------------------------------------------------------------
+   Buttons
+   --------------------------------------------------------------------------- */
+
+.btn {
+    padding: 6px 16px;
+    border: none;
+    border-radius: 6px;
+    font-size: 0.85rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background-color 0.15s, opacity 0.15s;
+}
+
+.btn:disabled {
+    cursor: default;
+    opacity: 0.6;
+}
+
+.btn-download {
+    background-color: #3b82f6;
+    color: #fff;
+}
+
+.btn-download:hover:not(:disabled) {
+    background-color: #2563eb;
+}
+
+.btn-switch {
+    background-color: #374151;
+    color: #e0e0e0;
+    border: 1px solid #555;
+}
+
+.btn-switch:hover:not(:disabled) {
+    background-color: #4b5563;
+}
+
+.btn-active {
+    background-color: transparent;
+    color: #22c55e;
+    border: 1px solid #22c55e;
+}
+
+.btn-downloading {
+    background-color: #854d0e;
+    color: #fde68a;
+}
+
+/* ---------------------------------------------------------------------------
+   Hotkey display
+   --------------------------------------------------------------------------- */
+
+.hotkey-display {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+    font-size: 0.95rem;
+    color: #ccc;
+}
+
+kbd {
+    display: inline-block;
+    padding: 4px 10px;
+    font-family: inherit;
+    font-size: 0.85rem;
+    color: #e0e0e0;
+    background-color: #333;
+    border: 1px solid #555;
+    border-radius: 5px;
+    box-shadow: 0 2px 0 #222;
+}
+
+.hotkey-hint {
+    color: #888;
+    font-size: 0.85rem;
+}
+
+/* ---------------------------------------------------------------------------
+   Scrollbar styling (Webkit)
+   --------------------------------------------------------------------------- */
+
+::-webkit-scrollbar {
+    width: 6px;
+}
+
+::-webkit-scrollbar-track {
+    background: #1a1a1a;
+}
+
+::-webkit-scrollbar-thumb {
+    background: #444;
+    border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: #666;
 }

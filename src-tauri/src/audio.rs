@@ -8,11 +8,17 @@ const SAMPLE_RATE: u32 = 16000;
 const CHANNELS: u16 = 1;
 const MAX_RECORDING_DURATION: Duration = Duration::from_secs(60);
 
+/// Wrapper to make cpal::Stream usable across threads.
+/// cpal::Stream is !Send on some platforms for safety, but on Windows (WASAPI)
+/// it's safe as long as access is synchronized through a Mutex.
+struct SendStream(cpal::Stream);
+unsafe impl Send for SendStream {}
+
 pub struct AudioRecorder {
     sample_rate: u32,
     channels: u16,
     samples: Arc<Mutex<Vec<f32>>>,
-    stream: Option<cpal::Stream>,
+    stream: Option<SendStream>,
     start_time: Option<Instant>,
 }
 
@@ -37,7 +43,7 @@ impl AudioRecorder {
             .default_input_device()
             .ok_or("No input device found")?;
 
-        let config = device
+        let _config = device
             .default_input_config()
             .map_err(|e| format!("Failed to get input config: {}", e))?;
 
@@ -67,13 +73,13 @@ impl AudioRecorder {
             .play()
             .map_err(|e| format!("Failed to start audio stream: {}", e))?;
 
-        self.stream = Some(stream);
+        self.stream = Some(SendStream(stream));
         Ok(())
     }
 
     pub fn stop_recording(&mut self) -> Result<PathBuf, String> {
         // Stop stream
-        if let Some(stream) = self.stream.take() {
+        if let Some(SendStream(stream)) = self.stream.take() {
             drop(stream);
         }
 
@@ -113,7 +119,7 @@ impl AudioRecorder {
     }
 
     pub fn cancel_recording(&mut self) {
-        if let Some(stream) = self.stream.take() {
+        if let Some(SendStream(stream)) = self.stream.take() {
             drop(stream);
         }
         self.samples.lock().unwrap().clear();

@@ -4,18 +4,21 @@
 mod audio;
 mod hotkey;
 mod overlay;
+#[allow(dead_code)]
+mod settings;
 mod tray;
 mod transcribe;
 mod typing;
 
 use std::sync::{Arc, Mutex};
-use tauri::Manager;
+use tauri::{Listener, Manager};
+use tauri_plugin_notification::NotificationExt;
 use audio::AudioRecorder;
 use transcribe::PythonService;
 
 struct AppState {
     recorder: Arc<Mutex<AudioRecorder>>,
-    python_service: Arc<Mutex<PythonService>>,
+    python_service: Arc<tokio::sync::Mutex<PythonService>>,
 }
 
 fn main() {
@@ -26,13 +29,13 @@ fn main() {
             // Initialize state
             let state = AppState {
                 recorder: Arc::new(Mutex::new(AudioRecorder::new())),
-                python_service: Arc::new(Mutex::new(PythonService::new())),
+                python_service: Arc::new(tokio::sync::Mutex::new(PythonService::new())),
             };
 
             // Start Python service
             let python_service = state.python_service.clone();
             tauri::async_runtime::spawn(async move {
-                let mut service = python_service.lock().unwrap();
+                let mut service = python_service.lock().await;
                 if let Err(e) = service.start().await {
                     eprintln!("Failed to start Python service: {}", e);
                 }
@@ -102,7 +105,7 @@ fn main() {
 
                     // Transcribe
                     let result = {
-                        let service = state.python_service.lock().unwrap();
+                        let service = state.python_service.lock().await;
                         service.transcribe(audio_path.clone()).await
                     };
 
