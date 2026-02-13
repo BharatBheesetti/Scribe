@@ -7,6 +7,136 @@
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
+    <!-- Onboarding wizard (first-run only) -->
+    <div id="onboarding-screen" class="container hidden">
+        <div class="onboarding-wrapper">
+            <!-- Skip link (top-right corner) -->
+            <button id="onboarding-skip" class="onboarding-skip">Skip</button>
+
+            <!-- Step indicator dots -->
+            <div class="onboarding-steps">
+                <span class="step-dot step-active" data-step="1"></span>
+                <span class="step-dot" data-step="2"></span>
+                <span class="step-dot" data-step="3"></span>
+                <span class="step-dot" data-step="4"></span>
+            </div>
+
+            <!-- Step 1: Welcome -->
+            <div id="onboarding-step-1" class="onboarding-step">
+                <h1 class="onboarding-title">Welcome to Scribe</h1>
+                <p class="onboarding-subtitle">Turn your voice into text. 100% offline, 100% free.</p>
+                <div class="onboarding-features">
+                    <div class="onboarding-feature-card">
+                        <span class="feature-icon">&#128274;</span>
+                        <div>
+                            <strong>Private by design</strong>
+                            <p>Your voice never leaves your device. No cloud, no accounts.</p>
+                        </div>
+                    </div>
+                    <div class="onboarding-feature-card">
+                        <span class="feature-icon">&#9889;</span>
+                        <div>
+                            <strong>Works everywhere</strong>
+                            <p>Dictate into any app. Email, chat, documents, code editors.</p>
+                        </div>
+                    </div>
+                    <div class="onboarding-feature-card">
+                        <span class="feature-icon">&#127760;</span>
+                        <div>
+                            <strong>No internet needed</strong>
+                            <p>Runs entirely on your computer. Works offline, always.</p>
+                        </div>
+                    </div>
+                </div>
+                <button id="onboarding-get-started" class="btn btn-onboarding-primary">Get Started</button>
+            </div>
+
+            <!-- Step 2: Download Model -->
+            <div id="onboarding-step-2" class="onboarding-step hidden">
+                <h1 class="onboarding-title">Download Speech Model</h1>
+                <p class="onboarding-subtitle">Scribe needs a small AI model to recognize your voice. We recommend <strong>Base English</strong> for the best balance of speed and accuracy.</p>
+                <div class="onboarding-model-card">
+                    <div class="onboarding-model-header">
+                        <span class="onboarding-model-name">Base English</span>
+                        <span class="onboarding-model-size">148 MB</span>
+                    </div>
+                    <p class="onboarding-model-desc">Fast recognition, optimized for English. Perfect for getting started.</p>
+                </div>
+                <div id="onboarding-download-area">
+                    <button id="onboarding-download-btn" class="btn btn-onboarding-primary">Download Model</button>
+                </div>
+                <div id="onboarding-download-progress" class="hidden">
+                    <div class="progress-bar-container">
+                        <div id="onboarding-progress-bar" class="progress-bar-fill"></div>
+                    </div>
+                    <p id="onboarding-download-status" class="onboarding-progress-status">Starting download...</p>
+                </div>
+                <div id="onboarding-download-done" class="hidden">
+                    <p class="onboarding-success-text">&#10003; Model downloaded and loaded!</p>
+                </div>
+            </div>
+
+            <!-- Step 3: Try It! -->
+            <div id="onboarding-step-3" class="onboarding-step hidden">
+                <h1 class="onboarding-title">Try It!</h1>
+                <p class="onboarding-subtitle">Let's make sure everything works. Press your hotkey and say something.</p>
+                <div class="onboarding-hotkey-prompt">
+                    <p>Your hotkey is</p>
+                    <div id="onboarding-hotkey-display" class="hotkey-display onboarding-hotkey-keys"></div>
+                </div>
+                <div class="onboarding-test-prompt">
+                    <p>Press <span id="onboarding-hotkey-inline" class="onboarding-hotkey-inline-text">your hotkey</span> and say:</p>
+                    <p class="onboarding-dictation-phrase">"Hello, Scribe"</p>
+                </div>
+                <div id="onboarding-test-result" class="onboarding-test-result hidden">
+                    <div id="onboarding-test-success" class="hidden">
+                        <p class="onboarding-result-label">You said:</p>
+                        <p id="onboarding-result-text" class="onboarding-result-text"></p>
+                        <p class="onboarding-success-text">&#10003; It works!</p>
+                    </div>
+                    <div id="onboarding-test-fail" class="hidden">
+                        <p class="onboarding-fail-text">No speech detected. Make sure your microphone is working and try again.</p>
+                        <button id="onboarding-try-again-btn" class="btn btn-switch">Try Again</button>
+                    </div>
+                </div>
+                <div id="onboarding-test-listening" class="onboarding-test-listening hidden">
+                    <div class="onboarding-listening-indicator">
+                        <span class="onboarding-listening-dot"></span>
+                        <span>Listening...</span>
+                    </div>
+                    <div class="onboarding-vu-meter">
+                        <div id="onboarding-vu-bar" class="onboarding-vu-bar-fill"></div>
+                    </div>
+                </div>
+                <button id="onboarding-continue-btn" class="btn btn-onboarding-primary hidden">Continue</button>
+            </div>
+
+            <!-- Step 4: Done! -->
+            <div id="onboarding-step-4" class="onboarding-step hidden">
+                <h1 class="onboarding-title">You're All Set!</h1>
+                <p class="onboarding-subtitle">Scribe is ready to go.</p>
+                <div class="onboarding-tips">
+                    <div class="onboarding-tip">
+                        <strong>System Tray</strong>
+                        <p>Scribe lives in your system tray (bottom-right). It's always ready.</p>
+                    </div>
+                    <div class="onboarding-tip">
+                        <strong>Dictate Anywhere</strong>
+                        <p>Press <span id="onboarding-final-hotkey" class="onboarding-hotkey-inline-text">your hotkey</span> in any app to start dictating. Press again to stop.</p>
+                    </div>
+                    <div class="onboarding-tip">
+                        <strong>Escape to Cancel</strong>
+                        <p>Changed your mind? Press Escape while recording to cancel.</p>
+                    </div>
+                </div>
+                <div class="onboarding-final-actions">
+                    <button id="onboarding-open-settings" class="btn btn-onboarding-primary">Open Settings</button>
+                    <button id="onboarding-close" class="btn btn-switch">Close to Tray</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- First-run setup screen -->
     <div id="setup-screen" class="container hidden">
         <div class="setup-wrapper">

@@ -45,6 +45,30 @@ const historySearch = document.getElementById('history-search');
 const historySearchClear = document.getElementById('history-search-clear');
 const historyResultCount = document.getElementById('history-result-count');
 
+// Onboarding DOM references
+const onboardingScreen = document.getElementById('onboarding-screen');
+const onboardingSkip = document.getElementById('onboarding-skip');
+const onboardingGetStarted = document.getElementById('onboarding-get-started');
+const onboardingDownloadBtn = document.getElementById('onboarding-download-btn');
+const onboardingDownloadArea = document.getElementById('onboarding-download-area');
+const onboardingDownloadProgress = document.getElementById('onboarding-download-progress');
+const onboardingProgressBar = document.getElementById('onboarding-progress-bar');
+const onboardingDownloadStatus = document.getElementById('onboarding-download-status');
+const onboardingDownloadDone = document.getElementById('onboarding-download-done');
+const onboardingContinueBtn = document.getElementById('onboarding-continue-btn');
+const onboardingHotkeyDisplay = document.getElementById('onboarding-hotkey-display');
+const onboardingHotkeyInline = document.getElementById('onboarding-hotkey-inline');
+const onboardingFinalHotkey = document.getElementById('onboarding-final-hotkey');
+const onboardingTestResult = document.getElementById('onboarding-test-result');
+const onboardingTestSuccess = document.getElementById('onboarding-test-success');
+const onboardingTestFail = document.getElementById('onboarding-test-fail');
+const onboardingResultText = document.getElementById('onboarding-result-text');
+const onboardingTestListening = document.getElementById('onboarding-test-listening');
+const onboardingVuBar = document.getElementById('onboarding-vu-bar');
+const onboardingTryAgainBtn = document.getElementById('onboarding-try-again-btn');
+const onboardingOpenSettings = document.getElementById('onboarding-open-settings');
+const onboardingClose = document.getElementById('onboarding-close');
+
 // Module-level state for history search
 let cachedHistoryEntries = [];   // Full unfiltered list from last loadHistory() call
 let historyTabVisible = false;   // Track whether History tab is currently shown
@@ -54,6 +78,7 @@ let historyRefreshInterval = null;
 let currentHotkey = 'Ctrl+Shift+Space';  // Will be loaded from backend
 let capturedHotkey = null;               // The key combo captured during capture mode
 let hotkeyCaptureModeActive = false;     // Whether we're in capture mode
+let onboardingActive = false;            // Whether we're currently in the onboarding wizard
 
 // ---------------------------------------------------------------------------
 // Tauri IPC helpers
@@ -92,6 +117,7 @@ function showScreen(screen) {
     setupScreen.classList.add('hidden');
     settingsScreen.classList.add('hidden');
     errorOverlay.classList.add('hidden');
+    if (onboardingScreen) onboardingScreen.classList.add('hidden');
     screen.classList.remove('hidden');
 }
 
@@ -104,6 +130,199 @@ async function showSettingsScreen() {
     await refreshModels();
     await loadSettings();
     await loadCurrentHotkey();
+}
+
+// ---------------------------------------------------------------------------
+// Onboarding wizard
+// ---------------------------------------------------------------------------
+
+let currentOnboardingStep = 1;
+let onboardingTranscriptionUnlisten = null;  // Cleanup handle for transcription listener
+let onboardingAudioLevelUnlisten = null;     // Cleanup handle for audio level listener
+
+function showOnboardingScreen() {
+    onboardingActive = true;
+    showScreen(onboardingScreen);
+    goToOnboardingStep(1);
+}
+
+function goToOnboardingStep(step) {
+    currentOnboardingStep = step;
+
+    // Hide all steps
+    for (let i = 1; i <= 4; i++) {
+        const el = document.getElementById('onboarding-step-' + i);
+        if (el) el.classList.add('hidden');
+    }
+
+    // Show target step
+    const target = document.getElementById('onboarding-step-' + step);
+    if (target) target.classList.remove('hidden');
+
+    // Update step dots
+    const dots = document.querySelectorAll('.step-dot');
+    dots.forEach(dot => {
+        const dotStep = parseInt(dot.dataset.step, 10);
+        dot.classList.remove('step-active', 'step-completed');
+        if (dotStep === step) {
+            dot.classList.add('step-active');
+        } else if (dotStep < step) {
+            dot.classList.add('step-completed');
+        }
+    });
+
+    // Step-specific setup
+    if (step === 3) {
+        setupOnboardingStep3();
+    }
+    if (step === 4) {
+        setupOnboardingStep4();
+    }
+}
+
+async function handleOnboardingDownload() {
+    // Disable button, show progress
+    if (onboardingDownloadBtn) onboardingDownloadBtn.disabled = true;
+    if (onboardingDownloadArea) onboardingDownloadArea.classList.add('hidden');
+    if (onboardingDownloadProgress) onboardingDownloadProgress.classList.remove('hidden');
+
+    try {
+        await invoke('download_model_cmd', { name: 'base.en' });
+
+        // Success -- show done state, auto-advance after brief pause
+        if (onboardingDownloadProgress) onboardingDownloadProgress.classList.add('hidden');
+        if (onboardingDownloadDone) onboardingDownloadDone.classList.remove('hidden');
+
+        setTimeout(() => {
+            goToOnboardingStep(3);
+        }, 1200);
+    } catch (err) {
+        console.error('Onboarding download failed:', err);
+        if (onboardingDownloadStatus) {
+            // MEDIUM-5 review fix: user-friendly error message
+            onboardingDownloadStatus.textContent = 'Download failed. Check your internet connection and try again.';
+            onboardingDownloadStatus.style.color = '#f87171';
+        }
+        // Re-enable download button for retry
+        if (onboardingDownloadBtn) onboardingDownloadBtn.disabled = false;
+        if (onboardingDownloadArea) onboardingDownloadArea.classList.remove('hidden');
+        if (onboardingDownloadProgress) onboardingDownloadProgress.classList.add('hidden');
+    }
+}
+
+function setupOnboardingStep3() {
+    // Render the hotkey display using the existing parseHotkeyParts function
+    const parts = parseHotkeyParts(currentHotkey);
+
+    // Render <kbd> elements in the hotkey display
+    if (onboardingHotkeyDisplay) {
+        onboardingHotkeyDisplay.textContent = '';
+        parts.forEach((part, i) => {
+            if (i > 0) onboardingHotkeyDisplay.appendChild(document.createTextNode(' + '));
+            const kbd = document.createElement('kbd');
+            kbd.textContent = part;
+            onboardingHotkeyDisplay.appendChild(kbd);
+        });
+    }
+
+    // Set inline hotkey text
+    const hotkeyText = parts.join(' + ');
+    if (onboardingHotkeyInline) onboardingHotkeyInline.textContent = hotkeyText;
+
+    // Reset test state
+    if (onboardingTestResult) onboardingTestResult.classList.add('hidden');
+    if (onboardingTestSuccess) onboardingTestSuccess.classList.add('hidden');
+    if (onboardingTestFail) onboardingTestFail.classList.add('hidden');
+    if (onboardingTestListening) onboardingTestListening.classList.add('hidden');
+    if (onboardingContinueBtn) onboardingContinueBtn.classList.add('hidden');
+
+    // Listen for audio level changes to show VU meter during recording
+    startOnboardingListeners();
+}
+
+async function startOnboardingListeners() {
+    // Clean up any previous listeners
+    await stopOnboardingListeners();
+
+    // Listen for transcription results
+    onboardingTranscriptionUnlisten = await listen('transcription-result', (event) => {
+        const text = event.payload;
+
+        // Hide listening indicator
+        if (onboardingTestListening) onboardingTestListening.classList.add('hidden');
+
+        if (onboardingTestResult) onboardingTestResult.classList.remove('hidden');
+
+        if (text && text.trim().length > 0) {
+            // Success!
+            if (onboardingTestSuccess) onboardingTestSuccess.classList.remove('hidden');
+            if (onboardingTestFail) onboardingTestFail.classList.add('hidden');
+            if (onboardingResultText) onboardingResultText.textContent = text.trim();
+            if (onboardingContinueBtn) onboardingContinueBtn.classList.remove('hidden');
+        } else {
+            // No speech or error
+            if (onboardingTestFail) onboardingTestFail.classList.remove('hidden');
+            if (onboardingTestSuccess) onboardingTestSuccess.classList.add('hidden');
+        }
+    });
+
+    // Listen for audio level to drive VU meter (same event as F1 overlay)
+    onboardingAudioLevelUnlisten = await listen('audio-level', (event) => {
+        const level = event.payload;
+        if (onboardingVuBar) {
+            // Scale level (0.0-1.0) to percentage, with a minimum visible width
+            const pct = Math.min(100, Math.max(2, level * 100));
+            onboardingVuBar.style.width = pct + '%';
+        }
+
+        // If we're receiving audio levels, show the listening indicator
+        if (onboardingTestListening && onboardingTestListening.classList.contains('hidden')) {
+            onboardingTestListening.classList.remove('hidden');
+            // Hide previous result while new recording is active
+            if (onboardingTestResult) onboardingTestResult.classList.add('hidden');
+            if (onboardingTestSuccess) onboardingTestSuccess.classList.add('hidden');
+            if (onboardingTestFail) onboardingTestFail.classList.add('hidden');
+            if (onboardingContinueBtn) onboardingContinueBtn.classList.add('hidden');
+        }
+    });
+}
+
+async function stopOnboardingListeners() {
+    if (onboardingTranscriptionUnlisten) {
+        onboardingTranscriptionUnlisten();
+        onboardingTranscriptionUnlisten = null;
+    }
+    if (onboardingAudioLevelUnlisten) {
+        onboardingAudioLevelUnlisten();
+        onboardingAudioLevelUnlisten = null;
+    }
+}
+
+function setupOnboardingStep4() {
+    // Show the hotkey in the final tips
+    const parts = parseHotkeyParts(currentHotkey);
+    const hotkeyText = parts.join(' + ');
+    if (onboardingFinalHotkey) onboardingFinalHotkey.textContent = hotkeyText;
+
+    // Clean up listeners from step 3
+    stopOnboardingListeners();
+}
+
+async function completeOnboarding() {
+    onboardingActive = false;
+    await stopOnboardingListeners();
+
+    try {
+        await invoke('mark_onboarding_complete');
+    } catch (err) {
+        console.error('Failed to mark onboarding complete:', err);
+        // Non-fatal: worst case, onboarding shows again next launch
+    }
+}
+
+async function skipOnboarding() {
+    await completeOnboarding();
+    showSettingsScreen();
 }
 
 // ---------------------------------------------------------------------------
@@ -996,11 +1215,63 @@ async function setupEventListeners() {
         });
     }
 
+    // Onboarding wizard
+    if (onboardingSkip) {
+        onboardingSkip.addEventListener('click', skipOnboarding);
+    }
+    if (onboardingGetStarted) {
+        onboardingGetStarted.addEventListener('click', () => goToOnboardingStep(2));
+    }
+    if (onboardingDownloadBtn) {
+        onboardingDownloadBtn.addEventListener('click', handleOnboardingDownload);
+    }
+    if (onboardingContinueBtn) {
+        onboardingContinueBtn.addEventListener('click', () => goToOnboardingStep(4));
+    }
+    if (onboardingTryAgainBtn) {
+        onboardingTryAgainBtn.addEventListener('click', () => {
+            // Reset test UI for another attempt
+            if (onboardingTestResult) onboardingTestResult.classList.add('hidden');
+            if (onboardingTestSuccess) onboardingTestSuccess.classList.add('hidden');
+            if (onboardingTestFail) onboardingTestFail.classList.add('hidden');
+            if (onboardingTestListening) onboardingTestListening.classList.add('hidden');
+            if (onboardingContinueBtn) onboardingContinueBtn.classList.add('hidden');
+        });
+    }
+    if (onboardingOpenSettings) {
+        onboardingOpenSettings.addEventListener('click', async () => {
+            await completeOnboarding();
+            showSettingsScreen();
+        });
+    }
+    if (onboardingClose) {
+        onboardingClose.addEventListener('click', async () => {
+            await completeOnboarding();
+            // Hide the window (minimize to tray)
+            try {
+                if (!tauriApi) tauriApi = await waitForTauri();
+                const currentWindow = tauriApi.window.getCurrentWindow();
+                await currentWindow.hide();
+            } catch (e) {
+                console.error('Failed to hide window:', e);
+            }
+        });
+    }
+
     // Download progress from Rust backend
     await listen('model-download-progress', (event) => {
         const { progress, downloaded_mb, total_mb } = event.payload;
-        setupProgressBar.style.width = `${progress}%`;
-        setupStatus.textContent = `Downloading... ${downloaded_mb}MB / ${total_mb}MB`;
+
+        // Update whichever progress bar is visible
+        if (onboardingActive) {
+            if (onboardingProgressBar) onboardingProgressBar.style.width = progress + '%';
+            if (onboardingDownloadStatus) {
+                onboardingDownloadStatus.textContent = 'Downloading... ' + downloaded_mb + 'MB / ' + total_mb + 'MB';
+            }
+        } else {
+            setupProgressBar.style.width = progress + '%';
+            setupStatus.textContent = 'Downloading... ' + downloaded_mb + 'MB / ' + total_mb + 'MB';
+        }
     });
 
     // Model ready (loaded into memory)
@@ -1017,6 +1288,7 @@ async function setupEventListeners() {
 
     // Show history tab when tray "History" menu item is clicked
     await listen('show-history', () => {
+        if (onboardingActive) return;  // Don't interrupt onboarding
         showScreen(settingsScreen);
         switchTab('history');
     });
@@ -1030,22 +1302,45 @@ async function init() {
     await setupEventListeners();
 
     try {
+        // Load settings to check onboarding status
+        const settings = await invoke('get_settings');
         const info = await invoke('get_app_info');
 
-        if (info.model_loaded) {
-            // Model already loaded — show settings
-            showSettingsScreen();
-        } else {
-            // No model yet — check if any model needs downloading
+        // Load hotkey for display (needed by both onboarding and settings)
+        await loadCurrentHotkey();
+
+        if (!settings.onboarding_complete) {
+            // First run (or upgrade from pre-onboarding version)
+            // HIGH-2 review fix: Check if ANY model is downloaded on disk (not model_loaded,
+            // which races with async model loading) to detect upgrade scenario
             const hasDownloaded = info.models.some(m => m.downloaded);
             if (hasDownloaded) {
-                // Model exists on disk but not loaded yet (loading in progress)
-                showScreen(setupScreen);
-                setupStatus.textContent = 'Loading model...';
-                setupProgressBar.style.width = '50%';
-            } else {
-                // First run — show settings so user can trigger download
+                // Upgrade scenario -- model exists, skip onboarding
+                // but mark onboarding complete so they don't see it next time
+                try {
+                    await invoke('mark_onboarding_complete');
+                } catch (e) {
+                    console.error('Failed to auto-complete onboarding for upgrade:', e);
+                }
                 showSettingsScreen();
+            } else {
+                // True first run -- show onboarding
+                showOnboardingScreen();
+            }
+        } else {
+            // Returning user
+            if (info.model_loaded) {
+                showSettingsScreen();
+            } else {
+                const hasDownloaded = info.models.some(m => m.downloaded);
+                if (hasDownloaded) {
+                    // Model exists on disk but not loaded yet (loading in progress)
+                    showScreen(setupScreen);
+                    setupStatus.textContent = 'Loading model...';
+                    setupProgressBar.style.width = '50%';
+                } else {
+                    showSettingsScreen();
+                }
             }
         }
     } catch (err) {

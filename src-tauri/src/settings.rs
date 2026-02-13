@@ -12,6 +12,7 @@ pub struct Settings {
     pub filler_removal: bool,
     pub sound_effects: bool,
     pub auto_start: bool,
+    pub onboarding_complete: bool,
 }
 
 impl Default for Settings {
@@ -24,6 +25,7 @@ impl Default for Settings {
             filler_removal: true,
             sound_effects: true,
             auto_start: false,
+            onboarding_complete: false,
         }
     }
 }
@@ -236,6 +238,7 @@ mod tests {
             filler_removal: false,
             sound_effects: false,
             auto_start: true,
+            onboarding_complete: true,
         };
 
         original.save_to(&path).unwrap();

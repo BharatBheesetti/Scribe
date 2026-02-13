@@ -163,20 +163,30 @@ fn save_settings(
     // HIGH-3 fix: Also merge hotkey from current in-memory state.
     // Only set_hotkey can change the hotkey. This prevents saveCurrentSettings()
     // from clobbering a recently-changed hotkey.
-    let (current_auto_start, current_hotkey) = {
+    let (current_auto_start, current_hotkey, current_onboarding_complete) = {
         let s = state
             .settings
             .lock()
             .unwrap_or_else(|e| e.into_inner());
-        (s.auto_start, s.hotkey.clone())
+        (s.auto_start, s.hotkey.clone(), s.onboarding_complete)
     };
 
     let mut merged = new_settings;
     merged.auto_start = current_auto_start;
     merged.hotkey = current_hotkey;
+    merged.onboarding_complete = current_onboarding_complete;
 
     merged.save()?;
     *state.settings.lock().unwrap_or_else(|e| e.into_inner()) = merged;
+    Ok(())
+}
+
+#[tauri::command]
+fn mark_onboarding_complete(state: tauri::State<'_, AppState>) -> Result<(), String> {
+    let mut settings = state.settings.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    settings.onboarding_complete = true;
+    settings.save()?;
+    *state.settings.lock().unwrap_or_else(|e| e.into_inner()) = settings;
     Ok(())
 }
 
@@ -370,6 +380,7 @@ fn main() {
             switch_model_cmd,
             get_settings,
             save_settings,
+            mark_onboarding_complete,
             get_history,
             clear_history,
             set_auto_start,
@@ -816,6 +827,8 @@ fn main() {
 
                                     println!("After cleanup: {:?}", final_text);
 
+                                    let _ = app_handle.emit("transcription-result", &final_text);
+
                                     // Auto-paste text into the active app
                                     if let Err(e) = typing::auto_output(&final_text, &output_mode) {
                                         eprintln!("Failed to output text: {}", e);
@@ -864,6 +877,7 @@ fn main() {
                                     }
                                 }
                                 PostTranscriptionAction::NoSpeechDetected => {
+                                    let _ = app_handle.emit("transcription-result", "");
                                     app_handle
                                         .notification()
                                         .builder()
@@ -876,6 +890,7 @@ fn main() {
                                     overlay::hide(&app_handle);
                                 }
                                 PostTranscriptionAction::TranscriptionError(ref e) => {
+                                    let _ = app_handle.emit("transcription-result", "");
                                     eprintln!("Transcription error: {}", e);
                                     app_handle
                                         .notification()
@@ -922,6 +937,7 @@ fn main() {
                         .lock()
                         .unwrap_or_else(|e| e.into_inner());
                     recorder.cancel_recording();
+                    let _ = app_handle.emit("transcription-result", "");
                     let _ = tray::update_tray_state(&app_handle, tray::TrayState::Idle);
                     overlay::hide(&app_handle);
 
