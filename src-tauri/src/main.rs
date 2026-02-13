@@ -9,6 +9,7 @@ mod model_manager;
 mod overlay;
 mod post_process;
 mod settings;
+mod sounds;
 mod state_machine;
 mod tray;
 mod typing;
