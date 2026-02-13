@@ -18,6 +18,7 @@ const modelList = document.getElementById('model-list');
 const languageSelect = document.getElementById('language-select');
 const outputModeSelect = document.getElementById('output-mode-select');
 const fillerRemovalToggle = document.getElementById('filler-removal-toggle');
+const soundEffectsToggle = document.getElementById('sound-effects-toggle');
 
 // Tab navigation elements
 const tabSettings = document.getElementById('tab-settings');
@@ -88,6 +89,7 @@ async function loadSettings() {
         if (languageSelect) languageSelect.value = settings.language || 'auto';
         if (outputModeSelect) outputModeSelect.value = settings.output_mode || 'clipboard_paste';
         if (fillerRemovalToggle) fillerRemovalToggle.checked = settings.filler_removal !== false;
+        if (soundEffectsToggle) soundEffectsToggle.checked = settings.sound_effects !== false;
     } catch (err) {
         console.error('Failed to load settings:', err);
     }
@@ -101,6 +103,7 @@ async function saveCurrentSettings() {
             language: languageSelect ? languageSelect.value : 'auto',
             output_mode: outputModeSelect ? outputModeSelect.value : 'clipboard_paste',
             filler_removal: fillerRemovalToggle ? fillerRemovalToggle.checked : true,
+            sound_effects: soundEffectsToggle ? soundEffectsToggle.checked : true,
         };
         await invoke('save_settings', { newSettings: settings });
     } catch (err) {
@@ -430,6 +433,9 @@ async function setupEventListeners() {
     }
     if (fillerRemovalToggle) {
         fillerRemovalToggle.addEventListener('change', saveCurrentSettings);
+    }
+    if (soundEffectsToggle) {
+        soundEffectsToggle.addEventListener('change', saveCurrentSettings);
     }
 
     // Download progress from Rust backend
