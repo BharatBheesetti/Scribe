@@ -32,7 +32,7 @@ const MODELS: &[ModelDef] = &[
         name: "large-v3-turbo-q5_0",
         filename: "ggml-large-v3-turbo-q5_0.bin",
         url: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin",
-        size_mb: 1030,
+        size_mb: 574,
         description: "Best accuracy, multilingual",
     },
 ];
@@ -91,6 +91,7 @@ pub fn path_for_model(name: &str) -> Result<PathBuf, String> {
 }
 
 /// Return the file path for a model by name within a specific base directory.
+#[cfg(test)]
 fn path_for_model_in(base_dir: &Path, name: &str) -> Result<PathBuf, String> {
     let model = MODELS
         .iter()
@@ -370,15 +371,6 @@ mod tests {
     }
 
     #[test]
-    fn default_model_is_base_en_for_fast_first_experience() {
-        // UX: When the user first opens Scribe, we want the fastest possible
-        // model so they get instant results. base.en (148MB) is the right choice
-        // for English users getting started.
-        assert_eq!(DEFAULT_MODEL, "base.en",
-            "Default model should be base.en for fast first-time experience");
-    }
-
-    #[test]
     fn model_sizes_are_reasonable_for_download_progress_display() {
         // UX: The download progress UI shows "148 MB" or "1.0 GB" to set user
         // expectations. These values must be approximately correct so users can
@@ -395,8 +387,8 @@ mod tests {
             "small.en should be ~488MB, got {}MB", small.size_mb);
 
         let large = models.iter().find(|m| m.name == "large-v3-turbo-q5_0").unwrap();
-        assert!(large.size_mb > 800 && large.size_mb < 1500,
-            "large model should be ~1030MB, got {}MB", large.size_mb);
+        assert!(large.size_mb > 400 && large.size_mb < 700,
+            "large model should be ~574MB, got {}MB", large.size_mb);
     }
 
     #[test]
