@@ -97,10 +97,11 @@ async fn download_model_cmd(
 
     let _ = app.emit("model-ready", ());
 
+    let display_hk = format_hotkey_display(&hotkey::current_shortcut_string(&app));
     app.notification()
         .builder()
         .title("Scribe")
-        .body("Model loaded! Press Ctrl+Shift+Space to start recording.")
+        .body(format!("Model loaded! Press {} to start recording.", display_hk))
         .show()
         .ok();
 
@@ -157,16 +158,22 @@ fn save_settings(
     state: tauri::State<'_, AppState>,
     new_settings: settings::Settings,
 ) -> Result<(), String> {
-    // HIGH-1 fix: Merge auto_start from current in-memory state instead of
+    // Merge auto_start from current in-memory state instead of
     // accepting it from the frontend. Only set_auto_start can change auto_start.
-    let current_auto_start = state
-        .settings
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .auto_start;
+    // HIGH-3 fix: Also merge hotkey from current in-memory state.
+    // Only set_hotkey can change the hotkey. This prevents saveCurrentSettings()
+    // from clobbering a recently-changed hotkey.
+    let (current_auto_start, current_hotkey) = {
+        let s = state
+            .settings
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        (s.auto_start, s.hotkey.clone())
+    };
 
     let mut merged = new_settings;
     merged.auto_start = current_auto_start;
+    merged.hotkey = current_hotkey;
 
     merged.save()?;
     *state.settings.lock().unwrap_or_else(|e| e.into_inner()) = merged;
@@ -227,6 +234,116 @@ fn clear_history(state: tauri::State<'_, AppState>) -> Result<(), String> {
     history.save()
 }
 
+#[tauri::command]
+fn set_hotkey(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    hotkey: String,
+) -> Result<String, String> {
+    // Reject if currently recording or processing
+    {
+        let rs = state.recording_state.lock().unwrap_or_else(|e| e.into_inner());
+        if *rs == RecordingState::Recording || *rs == RecordingState::Processing {
+            return Err("Cannot change hotkey while recording or processing".to_string());
+        }
+    }
+
+    // Attempt the change (validates, registers new, unregisters old)
+    let normalized = hotkey::change_recording_hotkey(&app, &hotkey)?;
+
+    // Persist to settings
+    {
+        let mut settings = state.settings.lock().unwrap_or_else(|e| e.into_inner());
+        settings.hotkey = normalized.clone();
+        if let Err(e) = settings.save() {
+            eprintln!("Failed to save hotkey setting: {}", e);
+            // Non-fatal: hotkey is active in memory, just won't persist
+        }
+    }
+
+    Ok(normalized)
+}
+
+#[tauri::command]
+fn get_current_hotkey(app: tauri::AppHandle) -> String {
+    hotkey::current_shortcut_string(&app)
+}
+
+/// Temporarily unregister the recording hotkey during capture mode
+/// to prevent it from firing while the user is pressing keys.
+#[tauri::command]
+fn pause_hotkey(app: tauri::AppHandle) -> Result<(), String> {
+    hotkey::unregister_recording_hotkey(&app)?;
+    Ok(())
+}
+
+/// Re-register the recording hotkey after capture mode ends.
+#[tauri::command]
+fn resume_hotkey(app: tauri::AppHandle) -> Result<(), String> {
+    hotkey::reregister_recording_hotkey(&app)
+}
+
+/// Format a canonical hotkey string for human-readable display in notifications.
+/// Converts `"shift+control+Space"` to `"Ctrl + Shift + Space"`.
+fn format_hotkey_display(raw: &str) -> String {
+    let parts: Vec<&str> = raw.split('+').collect();
+    let mut mods: Vec<&str> = Vec::new();
+    let mut key_part: Option<&str> = None;
+
+    for part in &parts {
+        let trimmed = part.trim();
+        match trimmed.to_lowercase().as_str() {
+            "control" | "ctrl" => mods.push("Ctrl"),
+            "shift" => mods.push("Shift"),
+            "alt" | "option" => mods.push("Alt"),
+            "super" | "cmd" | "command" => mods.push("Super"),
+            _ => key_part = Some(trimmed),
+        }
+    }
+
+    // MEDIUM-3: Display modifiers in conventional order: Ctrl, Shift, Alt, Super
+    let order = ["Ctrl", "Shift", "Alt", "Super"];
+    let mut sorted_mods: Vec<&str> = Vec::new();
+    for &m in &order {
+        if mods.contains(&m) {
+            sorted_mods.push(m);
+        }
+    }
+
+    let mut display_parts: Vec<String> = sorted_mods.iter().map(|s| s.to_string()).collect();
+
+    if let Some(key) = key_part {
+        // Convert Code Display names to human-friendly names
+        let friendly = code_to_display_name(key);
+        display_parts.push(friendly);
+    }
+
+    display_parts.join(" + ")
+}
+
+/// Convert a Code Display name (from `into_string()`) to a human-friendly name.
+/// E.g., "KeyA" -> "A", "Digit5" -> "5", "ArrowUp" -> "Up"
+fn code_to_display_name(code: &str) -> String {
+    // Strip "Key" prefix for letters
+    if code.len() == 4 && code.starts_with("Key") {
+        return code[3..].to_uppercase();
+    }
+    // Strip "Digit" prefix for numbers
+    if code.len() == 6 && code.starts_with("Digit") {
+        return code[5..].to_string();
+    }
+    // Arrow keys
+    if let Some(dir) = code.strip_prefix("Arrow") {
+        return dir.to_string();
+    }
+    // Everything else: use as-is with first letter capitalized
+    let mut chars = code.chars();
+    match chars.next() {
+        Some(c) => c.to_uppercase().to_string() + chars.as_str(),
+        None => String::new(),
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
@@ -256,6 +373,10 @@ fn main() {
             get_history,
             clear_history,
             set_auto_start,
+            set_hotkey,
+            get_current_hotkey,
+            pause_hotkey,
+            resume_hotkey,
         ])
         .setup(|app| {
             let mut loaded_settings = settings::Settings::load();
@@ -308,8 +429,12 @@ fn main() {
                 sounds: sound_effects,
             };
 
-            // Setup hotkeys
-            if let Err(e) = hotkey::setup_hotkeys(app.handle()) {
+            // Setup hotkeys using saved setting (not hardcoded)
+            let initial_hotkey = {
+                let s = state.settings.lock().unwrap_or_else(|e| e.into_inner());
+                s.hotkey.clone()
+            };
+            if let Err(e) = hotkey::setup_hotkeys(app.handle(), &initial_hotkey) {
                 eprintln!("Failed to setup hotkeys: {}", e);
                 app.handle()
                     .notification()
@@ -356,11 +481,12 @@ fn main() {
 
                                 let _ = app_handle.emit("model-ready", ());
 
+                                let display_hk = format_hotkey_display(&hotkey::current_shortcut_string(&app_handle));
                                 app_handle
                                     .notification()
                                     .builder()
                                     .title("Scribe")
-                                    .body("Ready! Press Ctrl+Shift+Space to start recording.")
+                                    .body(format!("Ready! Press {} to start recording.", display_hk))
                                     .show()
                                     .ok();
                             }
