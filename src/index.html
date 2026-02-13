@@ -139,6 +139,12 @@
 
         <!-- History tab content -->
         <div id="panel-history" class="tab-panel hidden">
+            <div class="history-search-container">
+                <input type="text" id="history-search" class="history-search-input"
+                       placeholder="Search transcriptions..." autocomplete="off" spellcheck="false">
+                <button id="history-search-clear" class="history-search-clear hidden" aria-label="Clear search">&times;</button>
+                <span id="history-result-count" class="history-result-count hidden"></span>
+            </div>
             <div id="history-list" class="history-list">
                 <!-- Populated by JS -->
             </div>
