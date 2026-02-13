@@ -29,6 +29,14 @@ const panelHistory = document.getElementById('panel-history');
 const historyList = document.getElementById('history-list');
 const historyEmpty = document.getElementById('history-empty');
 const clearHistoryBtn = document.getElementById('clear-history-btn');
+const historySearch = document.getElementById('history-search');
+const historySearchClear = document.getElementById('history-search-clear');
+const historyResultCount = document.getElementById('history-result-count');
+
+// Module-level state for history search
+let cachedHistoryEntries = [];   // Full unfiltered list from last loadHistory() call
+let historyTabVisible = false;   // Track whether History tab is currently shown
+let historyRefreshInterval = null;
 
 // ---------------------------------------------------------------------------
 // Tauri IPC helpers
@@ -236,10 +244,109 @@ function switchTab(tabName) {
     if (tabName === 'settings') {
         tabSettings.classList.add('tab-active');
         panelSettings.classList.remove('hidden');
+        historyTabVisible = false;
+        stopHistoryRefresh();
+        if (historySearch) historySearch.value = '';
+        if (historySearchClear) historySearchClear.classList.add('hidden');
+        if (historyResultCount) historyResultCount.classList.add('hidden');
+        // Clean up any no-results element
+        const noRes = panelHistory.querySelector('.history-no-results');
+        if (noRes) noRes.remove();
     } else if (tabName === 'history') {
         tabHistory.classList.add('tab-active');
         panelHistory.classList.remove('hidden');
         loadHistory();
+        historyTabVisible = true;
+        startHistoryRefresh();
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Utilities
+// ---------------------------------------------------------------------------
+
+function debounce(fn, ms) {
+    let timer;
+    return function(...args) {
+        clearTimeout(timer);
+        timer = setTimeout(() => fn.apply(this, args), ms);
+    };
+}
+
+function escapeHtml(str) {
+    return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+              .replace(/"/g, '&quot;');
+}
+
+/**
+ * Highlights matching substrings in text by wrapping them in <mark> tags.
+ * Uses split-map-join on RAW text, then escapes each fragment.
+ * This ensures HTML-special characters in text are handled correctly.
+ */
+function highlightMatches(text, query) {
+    if (!query) return escapeHtml(text);
+
+    // Escape regex special characters in the RAW query
+    const regexSafe = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const regex = new RegExp(`(${regexSafe})`, 'gi');
+
+    // Split RAW text by matches. split() with a capture group
+    // includes the matched text in the result array.
+    const parts = text.split(regex);
+
+    // HTML-escape each part, wrap matches in <mark>
+    return parts.map(part => {
+        if (regex.test(part)) {
+            regex.lastIndex = 0;
+            return '<mark>' + escapeHtml(part) + '</mark>';
+        }
+        regex.lastIndex = 0;
+        return escapeHtml(part);
+    }).join('');
+}
+
+function filterHistory() {
+    const query = historySearch ? historySearch.value.trim() : '';
+
+    // Show/hide clear button based on whether input has content
+    if (historySearchClear) {
+        historySearchClear.classList.toggle('hidden', query.length === 0);
+    }
+
+    if (!query) {
+        // Hide result count when not searching
+        if (historyResultCount) historyResultCount.classList.add('hidden');
+        renderHistory(cachedHistoryEntries);
+        return;
+    }
+
+    const lowerQuery = query.toLowerCase();
+    const filtered = cachedHistoryEntries.filter(entry =>
+        entry.text.toLowerCase().includes(lowerQuery)
+    );
+
+    // Show result count: "X of Y"
+    if (historyResultCount) {
+        historyResultCount.textContent = filtered.length + ' of ' + cachedHistoryEntries.length;
+        historyResultCount.classList.remove('hidden');
+    }
+
+    renderHistory(filtered, query);
+}
+
+function startHistoryRefresh() {
+    if (historyRefreshInterval) return;
+    historyRefreshInterval = setInterval(() => {
+        if (historyTabVisible) {
+            loadHistory();
+        }
+    }, 5000);
+}
+
+function stopHistoryRefresh() {
+    if (historyRefreshInterval) {
+        clearInterval(historyRefreshInterval);
+        historyRefreshInterval = null;
     }
 }
 
@@ -273,26 +380,61 @@ async function loadHistory() {
     try {
         const history = await invoke('get_history');
         const entries = history.entries || [];
-        renderHistory(entries);
+        cachedHistoryEntries = entries;
+        // Apply current search filter (or render all if no query)
+        filterHistory();
     } catch (err) {
         console.error('Failed to load history:', err);
     }
 }
 
-function renderHistory(entries) {
+function renderHistory(entries, query = '') {
     // Clear previous content
     historyList.textContent = '';
 
     if (entries.length === 0) {
         historyList.classList.add('hidden');
-        historyEmpty.classList.remove('hidden');
-        clearHistoryBtn.disabled = true;
+
+        if (query) {
+            // Active search with no results -- show "no results" message
+            // SECURITY: Use createElement + textContent, NEVER innerHTML with user input
+            historyEmpty.classList.add('hidden');
+            const noResults = document.createElement('div');
+            noResults.className = 'history-no-results';
+
+            const msg = document.createElement('p');
+            msg.appendChild(document.createTextNode('No results found for \u201c'));
+            const querySpan = document.createElement('span');
+            querySpan.className = 'search-query';
+            querySpan.textContent = query;  // textContent = XSS-safe
+            msg.appendChild(querySpan);
+            msg.appendChild(document.createTextNode('\u201d'));
+            noResults.appendChild(msg);
+
+            // Remove any previous no-results element
+            const prev = historyList.parentNode.querySelector('.history-no-results');
+            if (prev) prev.remove();
+
+            historyList.parentNode.insertBefore(noResults, historyList.nextSibling);
+            clearHistoryBtn.disabled = true;
+        } else {
+            // No search, genuinely empty history
+            // Remove any lingering no-results element
+            const prev = historyList.parentNode.querySelector('.history-no-results');
+            if (prev) prev.remove();
+            historyEmpty.classList.remove('hidden');
+            clearHistoryBtn.disabled = true;
+        }
         return;
     }
 
     historyList.classList.remove('hidden');
     historyEmpty.classList.add('hidden');
     clearHistoryBtn.disabled = false;
+
+    // Clean up any lingering no-results element
+    const prevNoResults = historyList.parentNode.querySelector('.history-no-results');
+    if (prevNoResults) prevNoResults.remove();
 
     for (const entry of entries) {
         const card = document.createElement('div');
@@ -317,7 +459,13 @@ function renderHistory(entries) {
         // Text preview (CSS clamps to 3 lines)
         const textP = document.createElement('p');
         textP.className = 'history-text';
-        textP.textContent = entry.text;
+        if (query) {
+            textP.innerHTML = highlightMatches(entry.text, query);
+            // innerHTML is safe here: highlightMatches escapes all text fragments
+            // before wrapping matches in <mark> tags
+        } else {
+            textP.textContent = entry.text;
+        }
         card.appendChild(textP);
 
         // Footer: model/language info + copy button
@@ -351,6 +499,10 @@ function renderHistory(entries) {
 async function handleClearHistory() {
     try {
         await invoke('clear_history');
+        cachedHistoryEntries = [];
+        if (historySearch) historySearch.value = '';
+        if (historySearchClear) historySearchClear.classList.add('hidden');
+        if (historyResultCount) historyResultCount.classList.add('hidden');
         renderHistory([]);
     } catch (err) {
         console.error('Failed to clear history:', err);
@@ -425,6 +577,22 @@ async function setupEventListeners() {
     // Clear history button
     if (clearHistoryBtn) {
         clearHistoryBtn.addEventListener('click', handleClearHistory);
+    }
+
+    // History search -- debounced input filtering
+    if (historySearch) {
+        historySearch.addEventListener('input', debounce(filterHistory, 200));
+    }
+
+    // History search clear button
+    if (historySearchClear) {
+        historySearchClear.addEventListener('click', () => {
+            if (historySearch) {
+                historySearch.value = '';
+                filterHistory();
+                historySearch.focus();
+            }
+        });
     }
 
     // Settings dropdowns — save on change
