@@ -42,11 +42,32 @@
             </section>
 
             <!-- Hotkey section -->
-            <section class="settings-section">
+            <section class="settings-section" id="hotkey-section">
                 <h2>Hotkey</h2>
-                <div class="hotkey-display">
-                    <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>Space</kbd>
+
+                <!-- Display mode: shows current hotkey -->
+                <div id="hotkey-display-mode">
+                    <div class="hotkey-display" id="hotkey-display">
+                        <!-- Populated dynamically by JS -->
+                    </div>
+                    <button id="hotkey-change-btn" class="btn btn-switch">Change</button>
                 </div>
+
+                <!-- Capture mode: listening for key press -->
+                <div id="hotkey-capture-mode" class="hidden">
+                    <div class="hotkey-capture-box" id="hotkey-capture-box">
+                        <span class="hotkey-capture-prompt">Press your desired key combination...</span>
+                    </div>
+                    <div class="hotkey-capture-preview hidden" id="hotkey-capture-preview">
+                        <!-- Filled with <kbd> elements by JS -->
+                    </div>
+                    <div id="hotkey-capture-error" class="hotkey-capture-error hidden"></div>
+                    <div class="hotkey-capture-actions">
+                        <button id="hotkey-save-btn" class="btn btn-download hidden">Save</button>
+                        <button id="hotkey-cancel-btn" class="btn btn-switch">Cancel</button>
+                    </div>
+                </div>
+
                 <p class="hotkey-hint">Press to start recording. Press again to stop and transcribe. Escape to cancel.</p>
             </section>
 
@@ -150,7 +171,7 @@
             </div>
             <div id="history-empty" class="history-empty hidden">
                 <p>No transcriptions yet.</p>
-                <p class="settings-hint">Press Ctrl+Shift+Space to start recording.</p>
+                <p class="settings-hint">Press <span id="history-hotkey-hint">Ctrl+Shift+Space</span> to start recording.</p>
             </div>
             <div class="history-actions">
                 <button id="clear-history-btn" class="btn btn-danger">Clear All History</button>

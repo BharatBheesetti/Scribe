@@ -21,6 +21,18 @@ const fillerRemovalToggle = document.getElementById('filler-removal-toggle');
 const soundEffectsToggle = document.getElementById('sound-effects-toggle');
 const autoStartToggle = document.getElementById('auto-start-toggle');
 
+// Hotkey capture widget elements
+const hotkeyDisplay = document.getElementById('hotkey-display');
+const hotkeyDisplayMode = document.getElementById('hotkey-display-mode');
+const hotkeyCaptureModeEl = document.getElementById('hotkey-capture-mode');
+const hotkeyCaptureBox = document.getElementById('hotkey-capture-box');
+const hotkeyCapturePreview = document.getElementById('hotkey-capture-preview');
+const hotkeyCaptureError = document.getElementById('hotkey-capture-error');
+const hotkeyChangeBtn = document.getElementById('hotkey-change-btn');
+const hotkeySaveBtn = document.getElementById('hotkey-save-btn');
+const hotkeyCancelBtn = document.getElementById('hotkey-cancel-btn');
+const historyHotkeyHint = document.getElementById('history-hotkey-hint');
+
 // Tab navigation elements
 const tabSettings = document.getElementById('tab-settings');
 const tabHistory = document.getElementById('tab-history');
@@ -37,6 +49,11 @@ const historyResultCount = document.getElementById('history-result-count');
 let cachedHistoryEntries = [];   // Full unfiltered list from last loadHistory() call
 let historyTabVisible = false;   // Track whether History tab is currently shown
 let historyRefreshInterval = null;
+
+// Module-level state for hotkey capture
+let currentHotkey = 'Ctrl+Shift+Space';  // Will be loaded from backend
+let capturedHotkey = null;               // The key combo captured during capture mode
+let hotkeyCaptureModeActive = false;     // Whether we're in capture mode
 
 // ---------------------------------------------------------------------------
 // Tauri IPC helpers
@@ -86,6 +103,7 @@ async function showSettingsScreen() {
     showScreen(settingsScreen);
     await refreshModels();
     await loadSettings();
+    await loadCurrentHotkey();
 }
 
 // ---------------------------------------------------------------------------
@@ -108,8 +126,8 @@ async function loadSettings() {
 async function saveCurrentSettings() {
     try {
         const settings = {
-            hotkey: 'Ctrl+Shift+Space',  // hardcoded for now
-            model_size: 'base',           // will be overridden by active model
+            hotkey: currentHotkey,         // from module state (backend merges anyway)
+            model_size: 'base',            // will be overridden by active model
             language: languageSelect ? languageSelect.value : 'auto',
             output_mode: outputModeSelect ? outputModeSelect.value : 'clipboard_paste',
             filler_removal: fillerRemovalToggle ? fillerRemovalToggle.checked : true,
@@ -119,6 +137,350 @@ async function saveCurrentSettings() {
         await invoke('save_settings', { newSettings: settings });
     } catch (err) {
         console.error('Failed to save settings:', err);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Hotkey capture widget
+// ---------------------------------------------------------------------------
+
+/**
+ * Convert a canonical hotkey key name (from into_string()) to a human-friendly
+ * display name. Handles HIGH-2: KeyA -> A, Digit5 -> 5, etc.
+ */
+function keyDisplayName(name) {
+    // Strip "Key" prefix for letters: KeyA -> A
+    if (/^Key[A-Z]$/.test(name)) return name.slice(3);
+    // Strip "Digit" prefix for numbers: Digit5 -> 5
+    if (/^Digit\d$/.test(name)) return name.slice(5);
+    // Arrow keys: ArrowUp -> Up
+    if (name.startsWith('Arrow')) return name.slice(5);
+    // Backquote -> `
+    if (name === 'Backquote') return '`';
+    // Backslash -> \
+    if (name === 'Backslash') return '\\';
+    // BracketLeft -> [, BracketRight -> ]
+    if (name === 'BracketLeft') return '[';
+    if (name === 'BracketRight') return ']';
+    // Comma -> ,
+    if (name === 'Comma') return ',';
+    // Period -> .
+    if (name === 'Period') return '.';
+    // Quote -> '
+    if (name === 'Quote') return "'";
+    // Semicolon -> ;
+    if (name === 'Semicolon') return ';';
+    // Slash -> /
+    if (name === 'Slash') return '/';
+    // Minus -> -
+    if (name === 'Minus') return '-';
+    // Equal -> =
+    if (name === 'Equal') return '=';
+    // CapsLock -> Caps Lock
+    if (name === 'CapsLock') return 'Caps Lock';
+    // NumLock -> Num Lock
+    if (name === 'NumLock') return 'Num Lock';
+    // ScrollLock -> Scroll Lock
+    if (name === 'ScrollLock') return 'Scroll Lock';
+    // PrintScreen -> Print Screen
+    if (name === 'PrintScreen') return 'Print Screen';
+    // PageUp -> Page Up, PageDown -> Page Down
+    if (name === 'PageUp') return 'Page Up';
+    if (name === 'PageDown') return 'Page Down';
+    // Numpad keys: Numpad0 -> Num 0, NumpadAdd -> Num +
+    if (/^Numpad\d$/.test(name)) return 'Num ' + name.slice(6);
+    if (name === 'NumpadAdd') return 'Num +';
+    if (name === 'NumpadSubtract') return 'Num -';
+    if (name === 'NumpadMultiply') return 'Num *';
+    if (name === 'NumpadDivide') return 'Num /';
+    if (name === 'NumpadDecimal') return 'Num .';
+    if (name === 'NumpadEnter') return 'Num Enter';
+    if (name === 'NumpadEqual') return 'Num =';
+    // F-keys, Space, Enter, Tab, etc. -- use as-is
+    return name;
+}
+
+/**
+ * Parse a canonical hotkey string and return display parts in conventional order.
+ * Input: "shift+control+Space" (from into_string())
+ * Output: ["Ctrl", "Shift", "Space"]
+ *
+ * MEDIUM-3: Enforces conventional modifier order: Ctrl, Shift, Alt, Super
+ */
+function parseHotkeyParts(hotkeyStr) {
+    const parts = hotkeyStr.split('+').map(p => p.trim());
+    const mods = [];
+    let key = null;
+
+    for (const part of parts) {
+        switch (part.toLowerCase()) {
+            case 'control':
+            case 'ctrl':
+                mods.push('Ctrl');
+                break;
+            case 'shift':
+                mods.push('Shift');
+                break;
+            case 'alt':
+            case 'option':
+                mods.push('Alt');
+                break;
+            case 'super':
+            case 'cmd':
+            case 'command':
+                mods.push('Super');
+                break;
+            default:
+                key = keyDisplayName(part);
+                break;
+        }
+    }
+
+    // Sort modifiers in conventional order
+    const order = ['Ctrl', 'Shift', 'Alt', 'Super'];
+    const sortedMods = order.filter(m => mods.includes(m));
+
+    if (key) sortedMods.push(key);
+    return sortedMods;
+}
+
+/**
+ * Render the hotkey display as <kbd> elements.
+ * Also updates the history tab hint text.
+ */
+function renderHotkeyDisplay(hotkeyStr) {
+    if (!hotkeyDisplay) return;
+    hotkeyDisplay.textContent = ''; // Clear
+
+    const parts = parseHotkeyParts(hotkeyStr);
+    parts.forEach((part, i) => {
+        if (i > 0) {
+            hotkeyDisplay.appendChild(document.createTextNode(' + '));
+        }
+        const kbd = document.createElement('kbd');
+        kbd.textContent = part;
+        hotkeyDisplay.appendChild(kbd);
+    });
+
+    // Also update the history hint
+    if (historyHotkeyHint) {
+        historyHotkeyHint.textContent = parts.join(' + ');
+    }
+}
+
+/**
+ * Load the current hotkey from the backend and render it.
+ */
+async function loadCurrentHotkey() {
+    try {
+        const hk = await invoke('get_current_hotkey');
+        currentHotkey = hk;
+        renderHotkeyDisplay(hk);
+    } catch (err) {
+        console.error('Failed to load current hotkey:', err);
+        renderHotkeyDisplay('Ctrl+Shift+Space');
+    }
+}
+
+/**
+ * Map DOM KeyboardEvent.code to global-hotkey key names.
+ */
+function mapDomCodeToHotkeyKey(code) {
+    const directMap = {
+        'Space': 'Space', 'Enter': 'Enter', 'Tab': 'Tab',
+        'Backspace': 'Backspace', 'Delete': 'Delete',
+        'Home': 'Home', 'End': 'End', 'PageUp': 'PageUp', 'PageDown': 'PageDown',
+        'Insert': 'Insert', 'Escape': 'Escape',
+        'ArrowUp': 'ArrowUp', 'ArrowDown': 'ArrowDown',
+        'ArrowLeft': 'ArrowLeft', 'ArrowRight': 'ArrowRight',
+        'PrintScreen': 'PrintScreen', 'ScrollLock': 'ScrollLock',
+        'Pause': 'Pause', 'NumLock': 'NumLock',
+        'Backquote': 'Backquote', 'Backslash': 'Backslash',
+        'BracketLeft': 'BracketLeft', 'BracketRight': 'BracketRight',
+        'Comma': 'Comma', 'Period': 'Period', 'Quote': 'Quote',
+        'Semicolon': 'Semicolon', 'Slash': 'Slash',
+        'Minus': 'Minus', 'Equal': 'Equal',
+        'CapsLock': 'CapsLock',
+    };
+
+    if (directMap[code]) return directMap[code];
+
+    // KeyA-KeyZ
+    if (/^Key[A-Z]$/.test(code)) return code;
+
+    // Digit0-Digit9
+    if (/^Digit[0-9]$/.test(code)) return code;
+
+    // F1-F24
+    if (/^F([1-9]|1[0-9]|2[0-4])$/.test(code)) return code;
+
+    // Numpad keys
+    if (/^Numpad\d$/.test(code)) return code;
+    if (code === 'NumpadAdd') return 'NumpadAdd';
+    if (code === 'NumpadSubtract') return 'NumpadSubtract';
+    if (code === 'NumpadMultiply') return 'NumpadMultiply';
+    if (code === 'NumpadDivide') return 'NumpadDivide';
+    if (code === 'NumpadDecimal') return 'NumpadDecimal';
+    if (code === 'NumpadEnter') return 'NumpadEnter';
+    if (code === 'NumpadEqual') return 'NumpadEqual';
+
+    // Unknown key
+    return null;
+}
+
+function showCaptureError(msg) {
+    if (hotkeyCaptureError) {
+        hotkeyCaptureError.textContent = msg;
+        hotkeyCaptureError.classList.remove('hidden');
+    }
+}
+
+function preventDefaultDuringCapture(e) {
+    if (hotkeyCaptureModeActive) {
+        e.preventDefault();
+        e.stopPropagation();
+    }
+}
+
+function handleHotkeyCapture(e) {
+    e.preventDefault();
+    e.stopPropagation();
+
+    // Ignore pure modifier key presses (wait for the actual key)
+    const modifierKeys = ['Control', 'Shift', 'Alt', 'Meta'];
+    if (modifierKeys.includes(e.key)) return;
+
+    // Escape cancels capture mode (no matter what modifiers are held)
+    if (e.key === 'Escape') {
+        exitCaptureMode();
+        return;
+    }
+
+    // Build modifier string in conventional order (MEDIUM-3)
+    const mods = [];
+    if (e.ctrlKey) mods.push('Ctrl');
+    if (e.shiftKey) mods.push('Shift');
+    if (e.altKey) mods.push('Alt');
+
+    // MEDIUM-4: Warn about Windows/Super key
+    if (e.metaKey) {
+        showCaptureError('The Windows key is not supported as a hotkey modifier. Most Win+key combos are intercepted by Windows.');
+        return;
+    }
+
+    // Map e.code to the global-hotkey key name
+    const keyName = mapDomCodeToHotkeyKey(e.code);
+
+    if (!keyName) {
+        showCaptureError('That key is not supported as a hotkey.');
+        return;
+    }
+
+    // Validate: must have at least one modifier, UNLESS it's an F-key
+    const isFKey = /^F\d+$/.test(keyName);
+    if (mods.length === 0 && !isFKey) {
+        showCaptureError('Hotkey must include at least one modifier (Ctrl, Alt, Shift) unless it is an F-key.');
+        return;
+    }
+
+    // Build the hotkey string
+    const hotkeyStr = [...mods, keyName].join('+');
+    capturedHotkey = hotkeyStr;
+
+    // Show preview
+    if (hotkeyCaptureBox) hotkeyCaptureBox.classList.add('hidden');
+    if (hotkeyCapturePreview) {
+        hotkeyCapturePreview.classList.remove('hidden');
+        hotkeyCapturePreview.textContent = '';
+
+        const displayParts = parseHotkeyParts(hotkeyStr);
+        displayParts.forEach((part, i) => {
+            if (i > 0) hotkeyCapturePreview.appendChild(document.createTextNode(' + '));
+            const kbd = document.createElement('kbd');
+            kbd.textContent = part;
+            hotkeyCapturePreview.appendChild(kbd);
+        });
+    }
+
+    if (hotkeyCaptureError) hotkeyCaptureError.classList.add('hidden');
+    if (hotkeySaveBtn) hotkeySaveBtn.classList.remove('hidden');
+}
+
+async function enterCaptureMode() {
+    hotkeyCaptureModeActive = true;
+    capturedHotkey = null;
+
+    if (hotkeyDisplayMode) hotkeyDisplayMode.classList.add('hidden');
+    if (hotkeyCaptureModeEl) hotkeyCaptureModeEl.classList.remove('hidden');
+
+    // Reset to listening state
+    if (hotkeyCaptureBox) hotkeyCaptureBox.classList.remove('hidden');
+    if (hotkeyCapturePreview) hotkeyCapturePreview.classList.add('hidden');
+    if (hotkeyCaptureError) hotkeyCaptureError.classList.add('hidden');
+    if (hotkeySaveBtn) hotkeySaveBtn.classList.add('hidden');
+
+    // MEDIUM-2: Temporarily unregister recording hotkey during capture
+    // to prevent it from firing while user presses keys
+    try {
+        await invoke('pause_hotkey');
+    } catch (err) {
+        console.error('Failed to pause hotkey during capture:', err);
+    }
+
+    // Add keydown listener
+    document.addEventListener('keydown', handleHotkeyCapture);
+    document.addEventListener('keydown', preventDefaultDuringCapture, true);
+}
+
+async function exitCaptureMode() {
+    hotkeyCaptureModeActive = false;
+    capturedHotkey = null;
+
+    if (hotkeyDisplayMode) hotkeyDisplayMode.classList.remove('hidden');
+    if (hotkeyCaptureModeEl) hotkeyCaptureModeEl.classList.add('hidden');
+
+    document.removeEventListener('keydown', handleHotkeyCapture);
+    document.removeEventListener('keydown', preventDefaultDuringCapture, true);
+
+    // MEDIUM-2: Re-register recording hotkey after capture mode ends
+    try {
+        await invoke('resume_hotkey');
+    } catch (err) {
+        console.error('Failed to resume hotkey after capture:', err);
+    }
+}
+
+async function saveHotkey() {
+    if (!capturedHotkey) return;
+
+    if (hotkeySaveBtn) {
+        hotkeySaveBtn.disabled = true;
+        hotkeySaveBtn.textContent = 'Saving...';
+    }
+
+    try {
+        // The backend validates, registers new, unregisters old, and persists
+        const normalized = await invoke('set_hotkey', { hotkey: capturedHotkey });
+        currentHotkey = normalized;
+        renderHotkeyDisplay(normalized);
+
+        // Exit capture mode but do NOT re-register via resume_hotkey
+        // because set_hotkey already registered the new one
+        hotkeyCaptureModeActive = false;
+        capturedHotkey = null;
+
+        if (hotkeyDisplayMode) hotkeyDisplayMode.classList.remove('hidden');
+        if (hotkeyCaptureModeEl) hotkeyCaptureModeEl.classList.add('hidden');
+
+        document.removeEventListener('keydown', handleHotkeyCapture);
+        document.removeEventListener('keydown', preventDefaultDuringCapture, true);
+    } catch (err) {
+        showCaptureError(typeof err === 'string' ? err : 'Failed to set hotkey. Try a different combination.');
+    } finally {
+        if (hotkeySaveBtn) {
+            hotkeySaveBtn.disabled = false;
+            hotkeySaveBtn.textContent = 'Save';
+        }
     }
 }
 
@@ -593,6 +955,17 @@ async function setupEventListeners() {
                 historySearch.focus();
             }
         });
+    }
+
+    // Hotkey capture widget
+    if (hotkeyChangeBtn) {
+        hotkeyChangeBtn.addEventListener('click', enterCaptureMode);
+    }
+    if (hotkeySaveBtn) {
+        hotkeySaveBtn.addEventListener('click', saveHotkey);
+    }
+    if (hotkeyCancelBtn) {
+        hotkeyCancelBtn.addEventListener('click', exitCaptureMode);
     }
 
     // Settings dropdowns — save on change
