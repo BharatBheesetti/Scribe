@@ -45,6 +45,16 @@ const historySearch = document.getElementById('history-search');
 const historySearchClear = document.getElementById('history-search-clear');
 const historyResultCount = document.getElementById('history-result-count');
 
+// Homepage DOM references
+const homepageScreen = document.getElementById('homepage-screen');
+const homepageDictateBtn = document.getElementById('homepage-dictate-btn');
+const homepageUploadBtn = document.getElementById('homepage-upload-btn');
+const homepageSettingsBtn = document.getElementById('homepage-settings-btn');
+const homepageHistoryBtn = document.getElementById('homepage-history-btn');
+const homepageStatusText = document.getElementById('homepage-status-text');
+const homepageStatusDot = document.getElementById('homepage-status-dot');
+const backToHomeBtn = document.getElementById('back-to-home');
+
 // Onboarding DOM references
 const onboardingScreen = document.getElementById('onboarding-screen');
 const onboardingSkip = document.getElementById('onboarding-skip');
@@ -118,6 +128,7 @@ function showScreen(screen) {
     settingsScreen.classList.add('hidden');
     errorOverlay.classList.add('hidden');
     if (onboardingScreen) onboardingScreen.classList.add('hidden');
+    if (homepageScreen) homepageScreen.classList.add('hidden');
     screen.classList.remove('hidden');
 }
 
@@ -130,6 +141,40 @@ async function showSettingsScreen() {
     await refreshModels();
     await loadSettings();
     await loadCurrentHotkey();
+}
+
+// ---------------------------------------------------------------------------
+// Homepage
+// ---------------------------------------------------------------------------
+
+let homepageRecordingActive = false;
+
+async function showHomepage() {
+    showScreen(homepageScreen);
+    await updateHomepageStatus();
+}
+
+async function updateHomepageStatus() {
+    try {
+        const info = await invoke('get_app_info');
+        const hk = await invoke('get_current_hotkey');
+        const parts = parseHotkeyParts(hk);
+        const hotkeyText = parts.join(' + ');
+
+        if (info.model_loaded) {
+            homepageStatusDot.className = 'status-dot status-loaded';
+            const active = info.models.find(m => m.active);
+            const modelName = active ? active.name : 'Unknown';
+            homepageStatusText.textContent = modelName + '  \u2022  ' + hotkeyText;
+            homepageDictateBtn.disabled = false;
+        } else {
+            homepageStatusDot.className = 'status-dot status-available';
+            homepageStatusText.textContent = 'No model loaded';
+            homepageDictateBtn.disabled = true;
+        }
+    } catch (err) {
+        console.error('Failed to update homepage status:', err);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1215,6 +1260,26 @@ async function setupEventListeners() {
         });
     }
 
+    // Homepage buttons
+    if (homepageDictateBtn) {
+        homepageDictateBtn.addEventListener('click', async () => {
+            if (!tauriApi) tauriApi = await waitForTauri();
+            tauriApi.event.emit('hotkey-pressed', {});
+        });
+    }
+    if (homepageSettingsBtn) {
+        homepageSettingsBtn.addEventListener('click', () => showSettingsScreen());
+    }
+    if (homepageHistoryBtn) {
+        homepageHistoryBtn.addEventListener('click', () => {
+            showScreen(settingsScreen);
+            switchTab('history');
+        });
+    }
+    if (backToHomeBtn) {
+        backToHomeBtn.addEventListener('click', () => showHomepage());
+    }
+
     // Onboarding wizard
     if (onboardingSkip) {
         onboardingSkip.addEventListener('click', skipOnboarding);
@@ -1241,7 +1306,7 @@ async function setupEventListeners() {
     if (onboardingOpenSettings) {
         onboardingOpenSettings.addEventListener('click', async () => {
             await completeOnboarding();
-            showSettingsScreen();
+            showHomepage();
         });
     }
     if (onboardingClose) {
@@ -1274,15 +1339,47 @@ async function setupEventListeners() {
         }
     });
 
+    // Track recording state for homepage button
+    await listen('overlay-show-recording', () => {
+        homepageRecordingActive = true;
+        if (homepageDictateBtn) {
+            homepageDictateBtn.textContent = 'Stop Recording';
+            homepageDictateBtn.classList.add('btn-recording');
+        }
+    });
+    await listen('overlay-hide', () => {
+        homepageRecordingActive = false;
+        if (homepageDictateBtn) {
+            homepageDictateBtn.textContent = 'Start Dictating';
+            homepageDictateBtn.classList.remove('btn-recording');
+        }
+    });
+
+    // Show homepage event (from tray, single-instance)
+    await listen('show-homepage', () => {
+        if (onboardingActive) return;
+        showHomepage();
+    });
+
+    // Show settings event (from tray)
+    await listen('show-settings', () => {
+        if (onboardingActive) return;
+        showSettingsScreen();
+    });
+
     // Model ready (loaded into memory)
     await listen('model-ready', () => {
-        // If we're on the setup screen, transition to settings
+        // If we're on the setup screen, transition to homepage
         if (!setupScreen.classList.contains('hidden')) {
             setupProgressBar.style.width = '100%';
             setupStatus.textContent = 'Model loaded!';
             setTimeout(() => {
-                showSettingsScreen();
+                showHomepage();
             }, 800);
+        }
+        // Also update homepage status if visible
+        if (homepageScreen && !homepageScreen.classList.contains('hidden')) {
+            updateHomepageStatus();
         }
     });
 
@@ -1322,7 +1419,7 @@ async function init() {
                 } catch (e) {
                     console.error('Failed to auto-complete onboarding for upgrade:', e);
                 }
-                showSettingsScreen();
+                showHomepage();
             } else {
                 // True first run -- show onboarding
                 showOnboardingScreen();
@@ -1330,7 +1427,7 @@ async function init() {
         } else {
             // Returning user
             if (info.model_loaded) {
-                showSettingsScreen();
+                showHomepage();
             } else {
                 const hasDownloaded = info.models.some(m => m.downloaded);
                 if (hasDownloaded) {

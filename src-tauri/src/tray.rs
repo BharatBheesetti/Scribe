@@ -2,7 +2,7 @@ use tauri::{
     image::Image,
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    AppHandle, Emitter,
+    AppHandle, Emitter, Manager,
 };
 
 static ICON_IDLE: &[u8] = include_bytes!("../icons/icon-idle.png");
@@ -19,6 +19,8 @@ pub enum TrayState {
 pub fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     let quit_item = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
     let settings_item = MenuItem::with_id(app, "settings", "Settings", true, None::<&str>)?;
+    let history_item = MenuItem::with_id(app, "history", "History", true, None::<&str>)?;
+    let homepage_item = MenuItem::with_id(app, "homepage", "Homepage", true, None::<&str>)?;
     let record_item = MenuItem::with_id(
         app,
         "record",
@@ -27,7 +29,7 @@ pub fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
         None::<&str>,
     )?;
 
-    let menu = Menu::with_items(app, &[&record_item, &settings_item, &quit_item])?;
+    let menu = Menu::with_items(app, &[&homepage_item, &record_item, &settings_item, &history_item, &quit_item])?;
 
     let icon = Image::from_bytes(ICON_IDLE)?;
 
@@ -39,22 +41,49 @@ pub fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
             "quit" => {
                 app.exit(0);
             }
+            "homepage" => {
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.show();
+                    let _ = window.unminimize();
+                    let _ = window.set_focus();
+                }
+                app.emit("show-homepage", ()).ok();
+            }
             "settings" => {
-                println!("Settings clicked");
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.show();
+                    let _ = window.unminimize();
+                    let _ = window.set_focus();
+                }
+                app.emit("show-settings", ()).ok();
+            }
+            "history" => {
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.show();
+                    let _ = window.unminimize();
+                    let _ = window.set_focus();
+                }
+                app.emit("show-history", ()).ok();
             }
             "record" => {
                 app.emit("hotkey-pressed", ()).ok();
             }
             _ => {}
         })
-        .on_tray_icon_event(|_tray, event| {
+        .on_tray_icon_event(|tray, event| {
             if let TrayIconEvent::Click {
                 button: MouseButton::Left,
                 button_state: MouseButtonState::Up,
                 ..
             } = event
             {
-                println!("Tray clicked");
+                let app = tray.app_handle();
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.show();
+                    let _ = window.unminimize();
+                    let _ = window.set_focus();
+                }
+                app.emit("show-homepage", ()).ok();
             }
         })
         .build(app)?;

@@ -3,10 +3,40 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Scribe Settings</title>
+    <title>Scribe</title>
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
+    <!-- Homepage (main landing page) -->
+    <div id="homepage-screen" class="container hidden">
+        <div class="homepage-wrapper">
+            <div class="homepage-header">
+                <h1 class="homepage-title">Scribe</h1>
+                <p class="homepage-subtitle">Voice to text, offline and private</p>
+            </div>
+
+            <div class="homepage-status" id="homepage-status">
+                <span class="status-dot status-loaded" id="homepage-status-dot"></span>
+                <span id="homepage-status-text">Loading...</span>
+            </div>
+
+            <div class="homepage-actions">
+                <button id="homepage-dictate-btn" class="btn btn-homepage-primary" disabled>
+                    Start Dictating
+                </button>
+                <button id="homepage-upload-btn" class="btn btn-homepage-secondary" disabled>
+                    Upload File
+                    <span class="coming-soon-badge">Coming Soon</span>
+                </button>
+            </div>
+
+            <div class="homepage-nav">
+                <button id="homepage-settings-btn" class="btn btn-homepage-nav">Settings</button>
+                <button id="homepage-history-btn" class="btn btn-homepage-nav">History</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Onboarding wizard (first-run only) -->
     <div id="onboarding-screen" class="container hidden">
         <div class="onboarding-wrapper">
@@ -130,7 +160,7 @@
                     </div>
                 </div>
                 <div class="onboarding-final-actions">
-                    <button id="onboarding-open-settings" class="btn btn-onboarding-primary">Open Settings</button>
+                    <button id="onboarding-open-settings" class="btn btn-onboarding-primary">Get Started</button>
                     <button id="onboarding-close" class="btn btn-switch">Close to Tray</button>
                 </div>
             </div>
@@ -151,6 +181,9 @@
 
     <!-- Normal settings screen -->
     <div id="settings-screen" class="container hidden">
+        <div class="back-nav">
+            <button id="back-to-home" class="btn btn-back">&larr; Home</button>
+        </div>
         <!-- Tab navigation -->
         <div class="tab-bar">
             <button id="tab-settings" class="tab-btn tab-active" data-tab="settings">Settings</button>
