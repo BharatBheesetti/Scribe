@@ -2,48 +2,229 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod audio;
+mod history;
 mod hotkey;
+mod inference;
+mod model_manager;
 mod overlay;
-#[allow(dead_code)]
 mod settings;
+mod state_machine;
 mod tray;
-mod transcribe;
 mod typing;
 
 use std::sync::{Arc, Mutex};
-use tauri::{Listener, Manager};
+use tauri::{Emitter, Listener, Manager};
 use tauri_plugin_notification::NotificationExt;
+
 use audio::AudioRecorder;
-use transcribe::PythonService;
+use inference::InferenceEngine;
+use state_machine::{RecordingState, HotkeyAction, PostRecordingAction, PostTranscriptionAction};
 
 struct AppState {
     recorder: Arc<Mutex<AudioRecorder>>,
-    python_service: Arc<tokio::sync::Mutex<PythonService>>,
+    inference: Arc<Mutex<Option<InferenceEngine>>>,
+    recording_state: Arc<Mutex<RecordingState>>,
+    active_model: Arc<Mutex<String>>,
+    settings: Arc<Mutex<settings::Settings>>,
+    history: Arc<Mutex<history::History>>,
 }
+
+// ---------------------------------------------------------------------------
+// Tauri commands (called from frontend via invoke)
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+fn get_app_info(state: tauri::State<'_, AppState>) -> serde_json::Value {
+    let model = state
+        .active_model
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone();
+    let ready = state
+        .inference
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .is_some();
+    let models = model_manager::list_models(&model);
+
+    serde_json::json!({
+        "model_loaded": ready,
+        "active_model": model,
+        "models": models,
+    })
+}
+
+#[tauri::command]
+async fn download_model_cmd(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    name: String,
+) -> Result<serde_json::Value, String> {
+    // Download model from HuggingFace (emits progress events)
+    let path = model_manager::download_model(&app, &name).await?;
+
+    // Load model into whisper-rs
+    let path_str = path
+        .to_str()
+        .ok_or("Model path contains invalid characters")?
+        .to_string();
+
+    let engine = InferenceEngine::new(path_str).await?;
+
+    {
+        *state
+            .inference
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = Some(engine);
+    }
+    {
+        *state
+            .active_model
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = name.clone();
+    }
+    {
+        *state
+            .recording_state
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = RecordingState::Idle;
+    }
+
+    let _ = app.emit("model-ready", ());
+
+    app.notification()
+        .builder()
+        .title("Scribe")
+        .body("Model loaded! Press Ctrl+Shift+Space to start recording.")
+        .show()
+        .ok();
+
+    Ok(serde_json::json!({ "status": "ok", "model": name }))
+}
+
+#[tauri::command]
+async fn switch_model_cmd(
+    state: tauri::State<'_, AppState>,
+    name: String,
+) -> Result<serde_json::Value, String> {
+    let path = model_manager::path_for_model(&name)?;
+    if !path.exists() {
+        return Err(format!("Model '{}' is not downloaded", name));
+    }
+
+    let path_str = path
+        .to_str()
+        .ok_or("Model path contains invalid characters")?
+        .to_string();
+
+    let engine = InferenceEngine::new(path_str).await?;
+
+    {
+        *state
+            .inference
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = Some(engine);
+    }
+    {
+        *state
+            .active_model
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = name.clone();
+    }
+    {
+        *state
+            .recording_state
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = RecordingState::Idle;
+    }
+
+    Ok(serde_json::json!({ "status": "ok", "model": name }))
+}
+
+#[tauri::command]
+fn get_settings(state: tauri::State<'_, AppState>) -> serde_json::Value {
+    let settings = state.settings.lock().unwrap_or_else(|e| e.into_inner());
+    serde_json::to_value(&*settings).unwrap_or(serde_json::json!({}))
+}
+
+#[tauri::command]
+fn save_settings(
+    state: tauri::State<'_, AppState>,
+    new_settings: settings::Settings,
+) -> Result<(), String> {
+    new_settings.save()?;
+    *state.settings.lock().unwrap_or_else(|e| e.into_inner()) = new_settings;
+    Ok(())
+}
+
+fn current_timestamp() -> String {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let duration = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default();
+    format!("{}", duration.as_secs())
+}
+
+#[tauri::command]
+fn get_history(state: tauri::State<'_, AppState>) -> serde_json::Value {
+    let history = state.history.lock().unwrap_or_else(|e| e.into_inner());
+    serde_json::to_value(&*history).unwrap_or(serde_json::json!({"entries": []}))
+}
+
+#[tauri::command]
+fn clear_history(state: tauri::State<'_, AppState>) -> Result<(), String> {
+    let mut history = state.history.lock().unwrap_or_else(|e| e.into_inner());
+    history.clear();
+    history.save()
+}
+
+// ---------------------------------------------------------------------------
+// Main
+// ---------------------------------------------------------------------------
 
 fn main() {
     tauri::Builder::default()
+        // Single-instance MUST be first plugin registered
+        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+            // A second instance tried to launch — focus our existing window
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
+        }))
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_notification::init())
+        .invoke_handler(tauri::generate_handler![
+            get_app_info,
+            download_model_cmd,
+            switch_model_cmd,
+            get_settings,
+            save_settings,
+            get_history,
+            clear_history,
+        ])
         .setup(|app| {
-            // Initialize state
+            let loaded_settings = settings::Settings::load();
+            let loaded_history = history::History::load();
             let state = AppState {
                 recorder: Arc::new(Mutex::new(AudioRecorder::new())),
-                python_service: Arc::new(tokio::sync::Mutex::new(PythonService::new())),
+                inference: Arc::new(Mutex::new(None)),
+                recording_state: Arc::new(Mutex::new(RecordingState::Initializing)),
+                active_model: Arc::new(Mutex::new(String::new())),
+                settings: Arc::new(Mutex::new(loaded_settings)),
+                history: Arc::new(Mutex::new(loaded_history)),
             };
-
-            // Start Python service
-            let python_service = state.python_service.clone();
-            tauri::async_runtime::spawn(async move {
-                let mut service = python_service.lock().await;
-                if let Err(e) = service.start().await {
-                    eprintln!("Failed to start Python service: {}", e);
-                }
-            });
 
             // Setup hotkeys
             if let Err(e) = hotkey::setup_hotkeys(app.handle()) {
                 eprintln!("Failed to setup hotkeys: {}", e);
+                app.handle()
+                    .notification()
+                    .builder()
+                    .title("Scribe")
+                    .body("Failed to register hotkeys. Try restarting.")
+                    .show()
+                    .ok();
             }
 
             // Setup system tray
@@ -51,127 +232,428 @@ fn main() {
                 eprintln!("Failed to setup tray: {}", e);
             }
 
-            // Store state
+            // Store state before spawning async tasks that reference it
             app.manage(state);
 
-            // Handle hotkey events
+            // Try to load default model (or open settings if first run)
+            let app_handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                let state: tauri::State<AppState> = app_handle.state();
+
+                match model_manager::default_model_path() {
+                    Ok(Some(path)) => {
+                        // Model exists on disk — load it
+                        println!("Loading default model: {:?}", path);
+                        let path_str = path.to_str().unwrap_or_default().to_string();
+
+                        match InferenceEngine::new(path_str).await {
+                            Ok(engine) => {
+                                *state
+                                    .inference
+                                    .lock()
+                                    .unwrap_or_else(|e| e.into_inner()) = Some(engine);
+                                *state
+                                    .active_model
+                                    .lock()
+                                    .unwrap_or_else(|e| e.into_inner()) =
+                                    model_manager::DEFAULT_MODEL.to_string();
+
+                                // Model loaded successfully — transition to Idle
+                                state_machine::on_model_loaded(&state.recording_state);
+
+                                let _ = app_handle.emit("model-ready", ());
+
+                                app_handle
+                                    .notification()
+                                    .builder()
+                                    .title("Scribe")
+                                    .body("Ready! Press Ctrl+Shift+Space to start recording.")
+                                    .show()
+                                    .ok();
+                            }
+                            Err(e) => {
+                                eprintln!("Failed to load model: {}", e);
+                                app_handle
+                                    .notification()
+                                    .builder()
+                                    .title("Model Load Failed")
+                                    .body("Could not load speech model. Please re-download from Settings.")
+                                    .show()
+                                    .ok();
+                                // Set to Idle so user can retry after downloading
+                                state_machine::on_model_loaded(&state.recording_state);
+                                // Show settings so user can re-download
+                                if let Some(window) = app_handle.get_webview_window("main") {
+                                    let _ = window.show();
+                                    let _ = window.set_focus();
+                                }
+                            }
+                        }
+                    }
+                    Ok(None) => {
+                        // First run — no model downloaded. Show settings window.
+                        println!("First run: no model found, opening settings");
+                        // Set to Idle so user isn't stuck in Initializing
+                        state_machine::on_model_loaded(&state.recording_state);
+                        if let Some(window) = app_handle.get_webview_window("main") {
+                            let _ = window.show();
+                            let _ = window.set_focus();
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("Error checking for default model: {}", e);
+                        app_handle
+                            .notification()
+                            .builder()
+                            .title("Scribe")
+                            .body("Could not check for models. Open Settings to download one.")
+                            .show()
+                            .ok();
+                        // Set to Idle so user isn't stuck in Initializing
+                        state_machine::on_model_loaded(&state.recording_state);
+                    }
+                }
+            });
+
+            // Toggle recording on hotkey press
             let app_handle = app.handle().clone();
             app.listen("hotkey-pressed", move |_event| {
                 let app_handle = app_handle.clone();
                 tauri::async_runtime::spawn(async move {
                     let state: tauri::State<AppState> = app_handle.state();
-                    let mut recorder = state.recorder.lock().unwrap();
-                    if let Ok(()) = recorder.start_recording() {
-                        let _ = tray::update_tray_state(&app_handle, tray::TrayState::Recording);
-                        overlay::show_recording(&app_handle);
-                        // Register Escape only while recording
-                        if let Err(e) = hotkey::register_escape(&app_handle) {
-                            eprintln!("Failed to register escape hotkey: {}", e);
-                        }
-                    }
-                });
-            });
 
-            let app_handle = app.handle().clone();
-            app.listen("hotkey-released", move |_event| {
-                let app_handle = app_handle.clone();
-                tauri::async_runtime::spawn(async move {
-                    let state: tauri::State<AppState> = app_handle.state();
+                    // Check if model is loaded (brief lock, released before state transition)
+                    let model_loaded = state
+                        .inference
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .is_some();
 
-                    // Unregister Escape now that recording is stopping
-                    if let Err(e) = hotkey::unregister_escape(&app_handle) {
-                        eprintln!("Failed to unregister escape hotkey: {}", e);
-                    }
+                    // Pure state transition — no nested locks
+                    let action = state_machine::on_hotkey_pressed(
+                        &state.recording_state,
+                        model_loaded,
+                    );
 
-                    // Stop recording
-                    let audio_path = {
-                        let mut recorder = state.recorder.lock().unwrap();
-                        recorder.stop_recording()
-                    };
-
-                    let audio_path = match audio_path {
-                        Ok(path) => path,
-                        Err(e) => {
-                            eprintln!("Recording error: {}", e);
-                            let _ = tray::update_tray_state(&app_handle, tray::TrayState::Idle);
-                            overlay::hide(&app_handle);
+                    match action {
+                        HotkeyAction::RejectInitializing => {
+                            app_handle
+                                .notification()
+                                .builder()
+                                .title("Scribe")
+                                .body("Still loading model. Please wait.")
+                                .show()
+                                .ok();
                             return;
                         }
-                    };
+                        HotkeyAction::RejectProcessing => {
+                            println!("Ignoring hotkey: still processing");
+                            return;
+                        }
+                        HotkeyAction::RejectNoModel => {
+                            app_handle
+                                .notification()
+                                .builder()
+                                .title("Scribe")
+                                .body("No model loaded. Open Settings to download one.")
+                                .show()
+                                .ok();
+                            if let Some(window) =
+                                app_handle.get_webview_window("main")
+                            {
+                                let _ = window.show();
+                                let _ = window.set_focus();
+                            }
+                            return;
+                        }
+                        HotkeyAction::StartRecording => {
+                            // START recording (state already set to Recording)
+                            let mut recorder = state
+                                .recorder
+                                .lock()
+                                .unwrap_or_else(|e| e.into_inner());
+                            match recorder.start_recording() {
+                                Ok(()) => {
+                                    let _ = tray::update_tray_state(
+                                        &app_handle,
+                                        tray::TrayState::Recording,
+                                    );
+                                    overlay::show_recording(&app_handle);
+                                    if let Err(e) = hotkey::register_escape(&app_handle) {
+                                        eprintln!("Failed to register escape hotkey: {}", e);
+                                    }
+                                    println!("Toggle: recording STARTED");
 
-                    // Update tray to processing
-                    let _ = tray::update_tray_state(&app_handle, tray::TrayState::Processing);
-                    overlay::show_processing(&app_handle);
+                                    // Spawn auto-stop timer (60 seconds)
+                                    let timeout_handle = app_handle.clone();
+                                    let timeout_state = state.recording_state.clone();
+                                    tauri::async_runtime::spawn(async move {
+                                        tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+                                        // Only auto-stop if still recording
+                                        let rs = timeout_state.lock().unwrap_or_else(|e| e.into_inner());
+                                        if *rs == RecordingState::Recording {
+                                            drop(rs);
+                                            println!("Auto-stop: 60s reached, triggering stop+transcribe");
+                                            let _ = timeout_handle.emit("hotkey-pressed", ());
+                                        }
+                                    });
+                                }
+                                Err(e) => {
+                                    // Revert state to Idle on failure
+                                    state_machine::on_recording_start_failed(
+                                        &state.recording_state,
+                                    );
+                                    eprintln!("Failed to start recording: {}", e);
+                                    app_handle
+                                        .notification()
+                                        .builder()
+                                        .title("Recording Failed")
+                                        .body(format!("{}", e))
+                                        .show()
+                                        .ok();
+                                }
+                            }
+                        }
+                        HotkeyAction::StopAndTranscribe => {
+                            // STOP recording and transcribe (state already set to Processing)
+                            println!("Toggle: recording STOPPED, starting transcription");
 
-                    // Transcribe
-                    let result = {
-                        let service = state.python_service.lock().await;
-                        service.transcribe(audio_path.clone()).await
-                    };
-
-                    // Cleanup audio file
-                    let _ = std::fs::remove_file(&audio_path);
-
-                    match result {
-                        Ok(response) => {
-                            // Auto-type the text
-                            if let Err(e) = typing::auto_output(&response.text) {
-                                eprintln!("Failed to output text: {}", e);
+                            // Unregister Escape
+                            if let Err(e) = hotkey::unregister_escape(&app_handle) {
+                                eprintln!("Failed to unregister escape hotkey: {}", e);
                             }
 
-                            // Show notification
-                            let preview = if response.text.len() > 50 {
-                                format!("{}...", &response.text[..50])
-                            } else {
-                                response.text.clone()
+                            // Stop recording and get 16kHz mono samples
+                            let samples_result = {
+                                let mut recorder = state
+                                    .recorder
+                                    .lock()
+                                    .unwrap_or_else(|e| e.into_inner());
+                                recorder.stop_recording()
                             };
 
-                            app_handle
-                                .notification()
-                                .builder()
-                                .title("Transcribed")
-                                .body(preview)
-                                .show()
-                                .ok();
+                            // Pure state evaluation — sets Idle on error/short/empty
+                            let post_action = state_machine::evaluate_recording(
+                                &state.recording_state,
+                                &samples_result,
+                            );
 
-                            // Show done overlay (auto-hides after 800ms)
-                            overlay::show_done(&app_handle);
-                        }
-                        Err(e) => {
-                            eprintln!("Transcription error: {}", e);
-                            app_handle
-                                .notification()
-                                .builder()
-                                .title("Transcription Failed")
-                                .body("Try again.")
-                                .show()
-                                .ok();
+                            let samples = match post_action {
+                                PostRecordingAction::Transcribe => {
+                                    // Safe to unwrap: evaluate_recording returns Transcribe only for Ok with enough samples
+                                    samples_result.unwrap()
+                                }
+                                PostRecordingAction::EmptyRecording => {
+                                    app_handle
+                                        .notification()
+                                        .builder()
+                                        .title("Empty Recording")
+                                        .body("No audio was captured.")
+                                        .show()
+                                        .ok();
+                                    let _ = tray::update_tray_state(
+                                        &app_handle,
+                                        tray::TrayState::Idle,
+                                    );
+                                    overlay::hide(&app_handle);
+                                    return;
+                                }
+                                PostRecordingAction::TooShort => {
+                                    println!("Recording too short");
+                                    app_handle
+                                        .notification()
+                                        .builder()
+                                        .title("Recording Too Short")
+                                        .body("Hold longer and speak. Minimum 0.5 seconds.")
+                                        .show()
+                                        .ok();
+                                    let _ = tray::update_tray_state(
+                                        &app_handle,
+                                        tray::TrayState::Idle,
+                                    );
+                                    overlay::hide(&app_handle);
+                                    return;
+                                }
+                                PostRecordingAction::RecordingError(e) => {
+                                    eprintln!("Recording error: {}", e);
+                                    app_handle
+                                        .notification()
+                                        .builder()
+                                        .title("Recording Error")
+                                        .body(format!("{}", e))
+                                        .show()
+                                        .ok();
+                                    let _ = tray::update_tray_state(
+                                        &app_handle,
+                                        tray::TrayState::Idle,
+                                    );
+                                    overlay::hide(&app_handle);
+                                    return;
+                                }
+                            };
 
-                            // Hide overlay on error
-                            overlay::hide(&app_handle);
+                            // Update tray to processing
+                            let _ = tray::update_tray_state(
+                                &app_handle,
+                                tray::TrayState::Processing,
+                            );
+                            overlay::show_processing(&app_handle);
+
+                            // Get a clone of the inference engine (brief lock)
+                            let engine = {
+                                state
+                                    .inference
+                                    .lock()
+                                    .unwrap_or_else(|e| e.into_inner())
+                                    .clone()
+                            };
+
+                            // Read language setting (brief lock)
+                            let language = {
+                                let s = state.settings.lock().unwrap_or_else(|e| e.into_inner());
+                                let lang = s.language.clone();
+                                if lang == "auto" { None } else { Some(lang) }
+                            };
+
+                            // Capture sample count before moving samples into transcribe
+                            let samples_len = samples.len();
+
+                            // Transcribe
+                            let result = match engine {
+                                Some(engine) => {
+                                    engine
+                                        .transcribe(samples, language)
+                                        .await
+                                }
+                                None => Err("No model loaded".to_string()),
+                            };
+
+                            // Pure state evaluation — always transitions to Idle
+                            let post_action = state_machine::evaluate_transcription(
+                                &state.recording_state,
+                                &result,
+                            );
+
+                            match post_action {
+                                PostTranscriptionAction::OutputText(ref text) => {
+                                    println!("Transcription: {:?}", text);
+
+                                    // Read output_mode setting (brief lock)
+                                    let output_mode = {
+                                        state.settings.lock().unwrap_or_else(|e| e.into_inner()).output_mode.clone()
+                                    };
+
+                                    // Auto-paste text into the active app
+                                    if let Err(e) = typing::auto_output(text, &output_mode) {
+                                        eprintln!("Failed to output text: {}", e);
+                                        // Text is still on clipboard from the paste attempt
+                                        app_handle
+                                            .notification()
+                                            .builder()
+                                            .title("Paste Failed")
+                                            .body("Text copied to clipboard. Paste manually with Ctrl+V.")
+                                            .show()
+                                            .ok();
+                                    }
+
+                                    // Show notification with preview (safe UTF-8 truncation)
+                                    let preview: String = if text.chars().count() > 50 {
+                                        let truncated: String =
+                                            text.chars().take(50).collect();
+                                        format!("{}...", truncated)
+                                    } else {
+                                        text.clone()
+                                    };
+
+                                    app_handle
+                                        .notification()
+                                        .builder()
+                                        .title("Transcribed")
+                                        .body(preview)
+                                        .show()
+                                        .ok();
+
+                                    overlay::show_done(&app_handle);
+
+                                    // Save to history
+                                    {
+                                        let mut hist = state.history.lock().unwrap_or_else(|e| e.into_inner());
+                                        let model_name = state.active_model.lock().unwrap_or_else(|e| e.into_inner()).clone();
+                                        let lang = state.settings.lock().unwrap_or_else(|e| e.into_inner()).language.clone();
+                                        let duration_secs = samples_len as f64 / 16000.0;
+                                        hist.add_entry(history::HistoryEntry {
+                                            timestamp: current_timestamp(),
+                                            text: text.clone(),
+                                            duration_seconds: duration_secs,
+                                            model: model_name,
+                                            language: lang,
+                                        });
+                                        let _ = hist.save();
+                                    }
+                                }
+                                PostTranscriptionAction::NoSpeechDetected => {
+                                    app_handle
+                                        .notification()
+                                        .builder()
+                                        .title("No Speech Detected")
+                                        .body(
+                                            "Try speaking louder or check your microphone.",
+                                        )
+                                        .show()
+                                        .ok();
+                                    overlay::hide(&app_handle);
+                                }
+                                PostTranscriptionAction::TranscriptionError(ref e) => {
+                                    eprintln!("Transcription error: {}", e);
+                                    app_handle
+                                        .notification()
+                                        .builder()
+                                        .title("Transcription Failed")
+                                        .body(format!("{}", e))
+                                        .show()
+                                        .ok();
+                                    overlay::hide(&app_handle);
+                                }
+                            }
+
+                            // Tray back to idle (state already set by evaluate_transcription)
+                            let _ = tray::update_tray_state(
+                                &app_handle,
+                                tray::TrayState::Idle,
+                            );
                         }
                     }
-
-                    // Return to idle
-                    let _ = tray::update_tray_state(&app_handle, tray::TrayState::Idle);
                 });
             });
 
+            // Cancel recording via Escape
             let app_handle = app.handle().clone();
             app.listen("escape-pressed", move |_event| {
                 let app_handle = app_handle.clone();
                 tauri::async_runtime::spawn(async move {
                     let state: tauri::State<AppState> = app_handle.state();
 
-                    // Unregister Escape since recording is being cancelled
+                    // Only cancel if currently recording
+                    let cancelled = state_machine::on_escape_pressed(
+                        &state.recording_state,
+                    );
+                    if !cancelled {
+                        return;
+                    }
+
                     if let Err(e) = hotkey::unregister_escape(&app_handle) {
                         eprintln!("Failed to unregister escape hotkey: {}", e);
                     }
 
-                    let mut recorder = state.recorder.lock().unwrap();
+                    let mut recorder = state
+                        .recorder
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner());
                     recorder.cancel_recording();
                     let _ = tray::update_tray_state(&app_handle, tray::TrayState::Idle);
                     overlay::hide(&app_handle);
+
+                    println!("Recording cancelled via Escape");
 
                     app_handle
                         .notification()
