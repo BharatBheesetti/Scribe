@@ -21,36 +21,105 @@
 
     <!-- Normal settings screen -->
     <div id="settings-screen" class="container hidden">
-        <h1>Scribe Settings</h1>
+        <!-- Tab navigation -->
+        <div class="tab-bar">
+            <button id="tab-settings" class="tab-btn tab-active" data-tab="settings">Settings</button>
+            <button id="tab-history" class="tab-btn" data-tab="history">History</button>
+        </div>
 
-        <!-- Active model section -->
-        <section class="settings-section">
-            <h2>Current Model</h2>
-            <div id="active-model-card" class="model-card active-model-card">
-                <div class="model-card-header">
-                    <span class="status-dot status-loaded"></span>
-                    <span id="active-model-name" class="model-name">--</span>
+        <!-- Settings tab content -->
+        <div id="panel-settings" class="tab-panel">
+            <!-- Active model section -->
+            <section class="settings-section">
+                <h2>Current Model</h2>
+                <div id="active-model-card" class="model-card active-model-card">
+                    <div class="model-card-header">
+                        <span class="status-dot status-loaded"></span>
+                        <span id="active-model-name" class="model-name">--</span>
+                    </div>
+                    <span id="active-model-desc" class="model-description">--</span>
                 </div>
-                <span id="active-model-desc" class="model-description">--</span>
-            </div>
-        </section>
+            </section>
 
-        <!-- Hotkey section -->
-        <section class="settings-section">
-            <h2>Hotkey</h2>
-            <div class="hotkey-display">
-                <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>Space</kbd>
-            </div>
-            <p class="hotkey-hint">Press and hold to record, release to transcribe.</p>
-        </section>
+            <!-- Hotkey section -->
+            <section class="settings-section">
+                <h2>Hotkey</h2>
+                <div class="hotkey-display">
+                    <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>Space</kbd>
+                </div>
+                <p class="hotkey-hint">Press to start recording. Press again to stop and transcribe. Escape to cancel.</p>
+            </section>
 
-        <!-- Available models section -->
-        <section class="settings-section">
-            <h2>Available Models</h2>
-            <div id="model-list" class="model-list">
+            <!-- Language section -->
+            <section class="settings-section">
+                <h2>Language</h2>
+                <select id="language-select" class="settings-select">
+                    <option value="auto">Auto-detect</option>
+                    <option value="en">English</option>
+                    <option value="es">Spanish</option>
+                    <option value="fr">French</option>
+                    <option value="de">German</option>
+                    <option value="pt">Portuguese</option>
+                    <option value="it">Italian</option>
+                    <option value="nl">Dutch</option>
+                    <option value="ja">Japanese</option>
+                    <option value="ko">Korean</option>
+                    <option value="zh">Chinese</option>
+                    <option value="ru">Russian</option>
+                    <option value="ar">Arabic</option>
+                    <option value="hi">Hindi</option>
+                </select>
+                <p class="settings-hint">Select "Auto-detect" to let Whisper identify the language automatically.</p>
+            </section>
+
+            <!-- Output mode section -->
+            <section class="settings-section">
+                <h2>Output Mode</h2>
+                <select id="output-mode-select" class="settings-select">
+                    <option value="clipboard_paste">Clipboard + Auto-paste (Ctrl+V)</option>
+                    <option value="clipboard_only">Copy to clipboard only</option>
+                    <option value="direct_type">Direct typing (slower, more compatible)</option>
+                </select>
+                <p class="settings-hint">How transcribed text is inserted into your active application.</p>
+            </section>
+
+            <!-- Text cleanup section -->
+            <section class="settings-section">
+                <h2>Text Cleanup</h2>
+                <div class="toggle-row">
+                    <label class="toggle-label" for="filler-removal-toggle">
+                        Remove filler words
+                    </label>
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="filler-removal-toggle" checked>
+                        <span class="toggle-slider"></span>
+                    </label>
+                </div>
+                <p class="settings-hint">Removes "um," "uh," "like" (as filler), "you know," and similar words from transcriptions. Disable for verbatim output.</p>
+            </section>
+
+            <!-- Available models section -->
+            <section class="settings-section">
+                <h2>Available Models</h2>
+                <div id="model-list" class="model-list">
+                    <!-- Populated by JS -->
+                </div>
+            </section>
+        </div>
+
+        <!-- History tab content -->
+        <div id="panel-history" class="tab-panel hidden">
+            <div id="history-list" class="history-list">
                 <!-- Populated by JS -->
             </div>
-        </section>
+            <div id="history-empty" class="history-empty hidden">
+                <p>No transcriptions yet.</p>
+                <p class="settings-hint">Press Ctrl+Shift+Space to start recording.</p>
+            </div>
+            <div class="history-actions">
+                <button id="clear-history-btn" class="btn btn-danger">Clear All History</button>
+            </div>
+        </div>
     </div>
 
     <!-- Connection error overlay -->
