@@ -19,6 +19,7 @@ const languageSelect = document.getElementById('language-select');
 const outputModeSelect = document.getElementById('output-mode-select');
 const fillerRemovalToggle = document.getElementById('filler-removal-toggle');
 const soundEffectsToggle = document.getElementById('sound-effects-toggle');
+const autoStartToggle = document.getElementById('auto-start-toggle');
 
 // Tab navigation elements
 const tabSettings = document.getElementById('tab-settings');
@@ -90,6 +91,7 @@ async function loadSettings() {
         if (outputModeSelect) outputModeSelect.value = settings.output_mode || 'clipboard_paste';
         if (fillerRemovalToggle) fillerRemovalToggle.checked = settings.filler_removal !== false;
         if (soundEffectsToggle) soundEffectsToggle.checked = settings.sound_effects !== false;
+        if (autoStartToggle) autoStartToggle.checked = settings.auto_start || false;
     } catch (err) {
         console.error('Failed to load settings:', err);
     }
@@ -104,6 +106,7 @@ async function saveCurrentSettings() {
             output_mode: outputModeSelect ? outputModeSelect.value : 'clipboard_paste',
             filler_removal: fillerRemovalToggle ? fillerRemovalToggle.checked : true,
             sound_effects: soundEffectsToggle ? soundEffectsToggle.checked : true,
+            auto_start: autoStartToggle ? autoStartToggle.checked : false,
         };
         await invoke('save_settings', { newSettings: settings });
     } catch (err) {
@@ -436,6 +439,20 @@ async function setupEventListeners() {
     }
     if (soundEffectsToggle) {
         soundEffectsToggle.addEventListener('change', saveCurrentSettings);
+    }
+
+    // Auto-start toggle — uses dedicated command, not saveCurrentSettings
+    if (autoStartToggle) {
+        autoStartToggle.addEventListener('change', async () => {
+            const enabled = autoStartToggle.checked;
+            try {
+                await invoke('set_auto_start', { enabled });
+            } catch (err) {
+                console.error('Failed to set auto-start:', err);
+                // Revert toggle on failure so UI stays in sync
+                autoStartToggle.checked = !enabled;
+            }
+        });
     }
 
     // Download progress from Rust backend

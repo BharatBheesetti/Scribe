@@ -1,0 +1,15 @@
+{
+  "identifier": "default",
+  "description": "Default permissions for Scribe windows",
+  "windows": ["main", "overlay"],
+  "permissions": [
+    "core:default",
+    "notification:default",
+    "global-shortcut:allow-register",
+    "global-shortcut:allow-unregister",
+    "global-shortcut:allow-is-registered",
+    "autostart:allow-enable",
+    "autostart:allow-disable",
+    "autostart:allow-is-enabled"
+  ]
+}

@@ -11,6 +11,7 @@ pub struct Settings {
     pub output_mode: String,
     pub filler_removal: bool,
     pub sound_effects: bool,
+    pub auto_start: bool,
 }
 
 impl Default for Settings {
@@ -22,6 +23,7 @@ impl Default for Settings {
             output_mode: "clipboard_paste".to_string(),
             filler_removal: true,
             sound_effects: true,
+            auto_start: false,
         }
     }
 }
@@ -233,6 +235,7 @@ mod tests {
             output_mode: "clipboard_only".to_string(),
             filler_removal: false,
             sound_effects: false,
+            auto_start: true,
         };
 
         original.save_to(&path).unwrap();

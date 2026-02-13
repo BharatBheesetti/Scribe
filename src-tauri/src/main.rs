@@ -157,8 +157,52 @@ fn save_settings(
     state: tauri::State<'_, AppState>,
     new_settings: settings::Settings,
 ) -> Result<(), String> {
-    new_settings.save()?;
-    *state.settings.lock().unwrap_or_else(|e| e.into_inner()) = new_settings;
+    // HIGH-1 fix: Merge auto_start from current in-memory state instead of
+    // accepting it from the frontend. Only set_auto_start can change auto_start.
+    let current_auto_start = state
+        .settings
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .auto_start;
+
+    let mut merged = new_settings;
+    merged.auto_start = current_auto_start;
+
+    merged.save()?;
+    *state.settings.lock().unwrap_or_else(|e| e.into_inner()) = merged;
+    Ok(())
+}
+
+#[tauri::command]
+fn set_auto_start(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    enabled: bool,
+) -> Result<(), String> {
+    use tauri_plugin_autostart::ManagerExt;
+
+    let autolaunch = app.autolaunch();
+
+    if enabled {
+        autolaunch
+            .enable()
+            .map_err(|e| format!("Failed to enable auto-start: {}", e))?;
+    } else {
+        autolaunch
+            .disable()
+            .map_err(|e| format!("Failed to disable auto-start: {}", e))?;
+    }
+
+    // Persist to settings file
+    let mut settings = state
+        .settings
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone();
+    settings.auto_start = enabled;
+    settings.save()?;
+    *state.settings.lock().unwrap_or_else(|e| e.into_inner()) = settings;
+
     Ok(())
 }
 
@@ -197,6 +241,10 @@ fn main() {
                 let _ = window.set_focus();
             }
         }))
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            Some(vec!["--auto-started"]),
+        ))
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_notification::init())
         .invoke_handler(tauri::generate_handler![
@@ -207,10 +255,43 @@ fn main() {
             save_settings,
             get_history,
             clear_history,
+            set_auto_start,
         ])
         .setup(|app| {
-            let loaded_settings = settings::Settings::load();
+            let mut loaded_settings = settings::Settings::load();
             let loaded_history = history::History::load();
+
+            // Detect auto-start launch (--auto-started flag appended by autostart plugin)
+            let auto_started = std::env::args().any(|a| a == "--auto-started");
+            if auto_started {
+                println!("Scribe launched via auto-start");
+            }
+
+            // HIGH-2 fix: Sync autostart registry with persisted setting, logging errors
+            // and correcting settings to match registry reality on failure.
+            {
+                use tauri_plugin_autostart::ManagerExt;
+                let autolaunch = app.handle().autolaunch();
+                let is_enabled = autolaunch.is_enabled().unwrap_or(false);
+
+                if loaded_settings.auto_start && !is_enabled {
+                    // Setting says enabled but registry missing — re-enable
+                    if let Err(e) = autolaunch.enable() {
+                        eprintln!("Failed to re-enable auto-start in registry: {}", e);
+                        // Correct settings to match reality
+                        loaded_settings.auto_start = false;
+                        let _ = loaded_settings.save();
+                    }
+                } else if !loaded_settings.auto_start && is_enabled {
+                    // Setting says disabled but registry present — clean up
+                    if let Err(e) = autolaunch.disable() {
+                        eprintln!("Failed to disable auto-start in registry: {}", e);
+                        // Correct settings to match reality
+                        loaded_settings.auto_start = true;
+                        let _ = loaded_settings.save();
+                    }
+                }
+            }
 
             let recorder = AudioRecorder::new();
             let audio_level = recorder.audio_level_arc(); // Get Arc BEFORE Mutex wrap
@@ -294,7 +375,9 @@ fn main() {
                                     .ok();
                                 // Set to Idle so user can retry after downloading
                                 state_machine::on_model_loaded(&state.recording_state);
-                                // Show settings so user can re-download
+                                // MEDIUM-2 fix: Always show settings on model failure,
+                                // even when auto-started. A broken model is not transient
+                                // and will fail every boot, creating a silent degradation loop.
                                 if let Some(window) = app_handle.get_webview_window("main") {
                                     let _ = window.show();
                                     let _ = window.set_focus();
@@ -303,7 +386,7 @@ fn main() {
                         }
                     }
                     Ok(None) => {
-                        // First run — no model downloaded. Show settings window.
+                        // First run — no model downloaded. Always show settings window.
                         println!("First run: no model found, opening settings");
                         // Set to Idle so user isn't stuck in Initializing
                         state_machine::on_model_loaded(&state.recording_state);
@@ -323,6 +406,13 @@ fn main() {
                             .ok();
                         // Set to Idle so user isn't stuck in Initializing
                         state_machine::on_model_loaded(&state.recording_state);
+                        // Show settings so user can resolve the issue
+                        if !auto_started {
+                            if let Some(window) = app_handle.get_webview_window("main") {
+                                let _ = window.show();
+                                let _ = window.set_focus();
+                            }
+                        }
                     }
                 }
             });
