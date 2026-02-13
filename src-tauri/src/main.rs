@@ -31,6 +31,7 @@ struct AppState {
     settings: Arc<Mutex<settings::Settings>>,
     history: Arc<Mutex<history::History>>,
     audio_level: Arc<AtomicU32>,  // Shared with AudioRecorder, lock-free VU meter
+    sounds: sounds::SoundEffects, // Pre-generated WAV buffers, immutable after init
 }
 
 // ---------------------------------------------------------------------------
@@ -213,6 +214,7 @@ fn main() {
 
             let recorder = AudioRecorder::new();
             let audio_level = recorder.audio_level_arc(); // Get Arc BEFORE Mutex wrap
+            let sound_effects = sounds::SoundEffects::new();
 
             let state = AppState {
                 recorder: Arc::new(Mutex::new(recorder)),
@@ -222,6 +224,7 @@ fn main() {
                 settings: Arc::new(Mutex::new(loaded_settings)),
                 history: Arc::new(Mutex::new(loaded_history)),
                 audio_level,
+                sounds: sound_effects,
             };
 
             // Setup hotkeys
@@ -383,6 +386,13 @@ fn main() {
                                 .unwrap_or_else(|e| e.into_inner());
                             match recorder.start_recording() {
                                 Ok(()) => {
+                                    // Play start sound if enabled (read setting with brief lock)
+                                    {
+                                        let settings = state.settings.lock().unwrap_or_else(|e| e.into_inner());
+                                        if settings.sound_effects {
+                                            state.sounds.play_start_sound();
+                                        }
+                                    }
                                     let _ = tray::update_tray_state(
                                         &app_handle,
                                         tray::TrayState::Recording,
@@ -453,6 +463,7 @@ fn main() {
                             }
 
                             // Stop recording and get 16kHz mono samples
+                            // The mic stream is CLOSED after this returns (audio thread joined).
                             let samples_result = {
                                 let mut recorder = state
                                     .recorder
@@ -460,6 +471,15 @@ fn main() {
                                     .unwrap_or_else(|e| e.into_inner());
                                 recorder.stop_recording()
                             };
+
+                            // Play stop sound AFTER mic is closed -- prevents feedback loop.
+                            // Safe: PlaySound uses MME output, completely separate from WASAPI input.
+                            {
+                                let settings = state.settings.lock().unwrap_or_else(|e| e.into_inner());
+                                if settings.sound_effects {
+                                    state.sounds.play_stop_sound();
+                                }
+                            }
 
                             // Pure state evaluation — sets Idle on error/short/empty
                             let post_action = state_machine::evaluate_recording(

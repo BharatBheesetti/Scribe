@@ -10,6 +10,7 @@ pub struct Settings {
     pub language: String,
     pub output_mode: String,
     pub filler_removal: bool,
+    pub sound_effects: bool,
 }
 
 impl Default for Settings {
@@ -20,6 +21,7 @@ impl Default for Settings {
             language: "auto".to_string(),
             output_mode: "clipboard_paste".to_string(),
             filler_removal: true,
+            sound_effects: true,
         }
     }
 }
@@ -230,6 +232,7 @@ mod tests {
             language: "de".to_string(),
             output_mode: "clipboard_only".to_string(),
             filler_removal: false,
+            sound_effects: false,
         };
 
         original.save_to(&path).unwrap();
