@@ -7,6 +7,7 @@ mod hotkey;
 mod inference;
 mod model_manager;
 mod overlay;
+mod post_process;
 mod settings;
 mod state_machine;
 mod tray;
@@ -563,17 +564,24 @@ fn main() {
 
                             match post_action {
                                 PostTranscriptionAction::OutputText(ref text) => {
-                                    println!("Transcription: {:?}", text);
+                                    println!("Raw transcription: {:?}", text);
 
-                                    // Read output_mode setting (brief lock)
-                                    let output_mode = {
-                                        state.settings.lock().unwrap_or_else(|e| e.into_inner()).output_mode.clone()
+                                    // Read settings for filler removal, language, and output mode (single brief lock)
+                                    let (filler_removal, language, output_mode) = {
+                                        let s = state.settings.lock().unwrap_or_else(|e| e.into_inner());
+                                        (s.filler_removal, s.language.clone(), s.output_mode.clone())
                                     };
 
+                                    // Post-process: filler removal + text cleanup
+                                    let cleaned = post_process::clean_transcription(text, filler_removal, &language);
+                                    // If cleaning produced empty string (all content was filler), fall back to raw
+                                    let final_text = if cleaned.is_empty() { text.clone() } else { cleaned };
+
+                                    println!("After cleanup: {:?}", final_text);
+
                                     // Auto-paste text into the active app
-                                    if let Err(e) = typing::auto_output(text, &output_mode) {
+                                    if let Err(e) = typing::auto_output(&final_text, &output_mode) {
                                         eprintln!("Failed to output text: {}", e);
-                                        // Text is still on clipboard from the paste attempt
                                         app_handle
                                             .notification()
                                             .builder()
@@ -584,12 +592,12 @@ fn main() {
                                     }
 
                                     // Show notification with preview (safe UTF-8 truncation)
-                                    let preview: String = if text.chars().count() > 50 {
+                                    let preview: String = if final_text.chars().count() > 50 {
                                         let truncated: String =
-                                            text.chars().take(50).collect();
+                                            final_text.chars().take(50).collect();
                                         format!("{}...", truncated)
                                     } else {
-                                        text.clone()
+                                        final_text.clone()
                                     };
 
                                     app_handle
@@ -602,7 +610,7 @@ fn main() {
 
                                     overlay::show_done(&app_handle);
 
-                                    // Save to history
+                                    // Save to history -- uses cleaned text
                                     {
                                         let mut hist = state.history.lock().unwrap_or_else(|e| e.into_inner());
                                         let model_name = state.active_model.lock().unwrap_or_else(|e| e.into_inner()).clone();
@@ -610,7 +618,7 @@ fn main() {
                                         let duration_secs = samples_len as f64 / 16000.0;
                                         hist.add_entry(history::HistoryEntry {
                                             timestamp: current_timestamp(),
-                                            text: text.clone(),
+                                            text: final_text.clone(),
                                             duration_seconds: duration_secs,
                                             model: model_name,
                                             language: lang,

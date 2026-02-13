@@ -3,11 +3,13 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(default)]
 pub struct Settings {
     pub hotkey: String,
     pub model_size: String,
     pub language: String,
     pub output_mode: String,
+    pub filler_removal: bool,
 }
 
 impl Default for Settings {
@@ -17,6 +19,7 @@ impl Default for Settings {
             model_size: "base".to_string(),
             language: "auto".to_string(),
             output_mode: "clipboard_paste".to_string(),
+            filler_removal: true,
         }
     }
 }
@@ -144,19 +147,21 @@ mod tests {
         let path = temp_settings_path(&dir);
 
         fs::create_dir_all(path.parent().unwrap()).unwrap();
-        // Simulate older version settings with only some fields
+        // Truly partial JSON — only 2 of 4 fields (simulates older app version)
         let partial_json = r#"{
             "hotkey": "Alt+R",
-            "language": "ja",
-            "model_size": "small.en",
-            "output_mode": "clipboard_paste"
+            "language": "ja"
         }"#;
         fs::write(&path, partial_json).unwrap();
 
         let settings = Settings::load_from(&path);
 
+        // Existing fields preserved
         assert_eq!(settings.hotkey, "Alt+R", "Existing hotkey should be preserved");
         assert_eq!(settings.language, "ja", "Existing language should be preserved");
+        // Missing fields filled with defaults
+        assert_eq!(settings.model_size, "base", "Missing model_size should get default");
+        assert_eq!(settings.output_mode, "clipboard_paste", "Missing output_mode should get default");
     }
 
     // ================================================================
@@ -224,6 +229,7 @@ mod tests {
             model_size: "large-v3-turbo-q5_0".to_string(),
             language: "de".to_string(),
             output_mode: "clipboard_only".to_string(),
+            filler_removal: false,
         };
 
         original.save_to(&path).unwrap();
@@ -340,5 +346,44 @@ mod tests {
         let settings = Settings::load_from(&path);
         assert_eq!(settings, Settings::default(),
             "Empty settings file should fall back to defaults");
+    }
+
+    // ================================================================
+    // FILLER REMOVAL SETTINGS
+    // ================================================================
+
+    #[test]
+    fn filler_removal_defaults_to_true_and_persists() {
+        let dir = TempDir::new().unwrap();
+        let path = temp_settings_path(&dir);
+
+        let settings = Settings::load_from(&path);
+        assert_eq!(settings.filler_removal, true, "Should default to ON");
+
+        let mut settings = Settings::default();
+        settings.filler_removal = false;
+        settings.save_to(&path).unwrap();
+
+        let reloaded = Settings::load_from(&path);
+        assert_eq!(reloaded.filler_removal, false, "Disabled should persist");
+    }
+
+    #[test]
+    fn old_settings_without_filler_removal_get_default_true() {
+        let dir = TempDir::new().unwrap();
+        let path = temp_settings_path(&dir);
+
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let old_json = r#"{
+            "hotkey": "Ctrl+Shift+Space",
+            "model_size": "base",
+            "language": "en",
+            "output_mode": "clipboard_paste"
+        }"#;
+        fs::write(&path, old_json).unwrap();
+
+        let settings = Settings::load_from(&path);
+        assert_eq!(settings.filler_removal, true, "Missing field should default to true");
+        assert_eq!(settings.language, "en", "Existing fields preserved");
     }
 }
