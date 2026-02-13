@@ -12,6 +12,7 @@ mod state_machine;
 mod tray;
 mod typing;
 
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 use tauri::{Emitter, Listener, Manager};
 use tauri_plugin_notification::NotificationExt;
@@ -27,6 +28,7 @@ struct AppState {
     active_model: Arc<Mutex<String>>,
     settings: Arc<Mutex<settings::Settings>>,
     history: Arc<Mutex<history::History>>,
+    audio_level: Arc<AtomicU32>,  // Shared with AudioRecorder, lock-free VU meter
 }
 
 // ---------------------------------------------------------------------------
@@ -206,13 +208,18 @@ fn main() {
         .setup(|app| {
             let loaded_settings = settings::Settings::load();
             let loaded_history = history::History::load();
+
+            let recorder = AudioRecorder::new();
+            let audio_level = recorder.audio_level_arc(); // Get Arc BEFORE Mutex wrap
+
             let state = AppState {
-                recorder: Arc::new(Mutex::new(AudioRecorder::new())),
+                recorder: Arc::new(Mutex::new(recorder)),
                 inference: Arc::new(Mutex::new(None)),
                 recording_state: Arc::new(Mutex::new(RecordingState::Initializing)),
                 active_model: Arc::new(Mutex::new(String::new())),
                 settings: Arc::new(Mutex::new(loaded_settings)),
                 history: Arc::new(Mutex::new(loaded_history)),
+                audio_level,
             };
 
             // Setup hotkeys
@@ -384,19 +391,39 @@ fn main() {
                                     }
                                     println!("Toggle: recording STARTED");
 
-                                    // Spawn auto-stop timer (60 seconds)
-                                    let timeout_handle = app_handle.clone();
-                                    let timeout_state = state.recording_state.clone();
-                                    tauri::async_runtime::spawn(async move {
-                                        tokio::time::sleep(std::time::Duration::from_secs(60)).await;
-                                        // Only auto-stop if still recording
-                                        let rs = timeout_state.lock().unwrap_or_else(|e| e.into_inner());
-                                        if *rs == RecordingState::Recording {
-                                            drop(rs);
-                                            println!("Auto-stop: 60s reached, triggering stop+transcribe");
-                                            let _ = timeout_handle.emit("hotkey-pressed", ());
-                                        }
-                                    });
+                                    // Start audio level polling (10Hz VU meter updates)
+                                    {
+                                        let app_for_level = app_handle.clone();
+                                        let level_atom = Arc::clone(&state.audio_level);
+                                        let rs_for_level = Arc::clone(&state.recording_state);
+
+                                        tauri::async_runtime::spawn(async move {
+                                            let mut interval = tokio::time::interval(
+                                                std::time::Duration::from_millis(100),
+                                            );
+                                            loop {
+                                                interval.tick().await;
+
+                                                // Exit when no longer recording.
+                                                // Catches: manual stop, auto-stop (60s timer),
+                                                // escape cancel, and any error that transitions
+                                                // state away from Recording.
+                                                {
+                                                    let rs = rs_for_level
+                                                        .lock()
+                                                        .unwrap_or_else(|e| e.into_inner());
+                                                    if *rs != RecordingState::Recording {
+                                                        break;
+                                                    }
+                                                }
+
+                                                let level = f32::from_bits(
+                                                    level_atom.load(Ordering::Relaxed)
+                                                );
+                                                let _ = app_for_level.emit("audio-level", level);
+                                            }
+                                        });
+                                    }
                                 }
                                 Err(e) => {
                                     // Revert state to Idle on failure

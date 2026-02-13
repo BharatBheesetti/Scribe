@@ -82,8 +82,28 @@
             font-size: 13px;
             font-weight: 400;
             color: #a3a3a3;
-            margin-left: auto;
+            /* REMOVED: margin-left: auto -- conflicts with flex:1 VU meter */
             font-variant-numeric: tabular-nums;
+            flex-shrink: 0;
+        }
+
+        /* VU meter bar */
+        .vu-meter {
+            flex: 1;
+            height: 6px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 3px;
+            overflow: hidden;
+            min-width: 40px;
+        }
+
+        .vu-meter-fill {
+            height: 100%;
+            width: 0%;
+            border-radius: 3px;
+            background: linear-gradient(90deg, #22c55e 0%, #22c55e 60%, #facc15 80%, #ef4444 100%);
+            transition: width 80ms ease-out;
+            will-change: width;
         }
 
         /* State visibility */
@@ -96,6 +116,9 @@
         <div id="state-recording" class="state">
             <div class="indicator recording"></div>
             <span class="label">Recording...</span>
+            <div class="vu-meter">
+                <div class="vu-meter-fill" id="vu-fill"></div>
+            </div>
             <span class="timer" id="timer">0:00</span>
         </div>
         <div id="state-processing" class="state">
@@ -156,14 +179,35 @@
 
             const { listen } = tauri.event;
 
+            // Cache VU meter element once (DOM is static)
+            const vuFill = document.getElementById('vu-fill');
+
+            // VU meter level updates (10Hz from Rust)
+            listen('audio-level', (event) => {
+                const level = event.payload;
+                // Convert RMS (0.0-1.0) to visual percentage using sqrt scaling.
+                // Raw RMS is perceptually too compressed -- sqrt makes quiet
+                // sounds more visible while still showing loud peaks.
+                // Gain factor 10.0 calibrated for typical USB mics.
+                // NOTE: ensure_mic_volume() auto-boosts mics to 100% system volume.
+                // If bar is always maxed during normal speech, reduce to 5.0 or 7.0.
+                const scaled = Math.min(Math.sqrt(level * 10.0), 1.0);
+                const pct = Math.round(scaled * 100);
+                vuFill.style.width = pct + '%';
+            });
+
             listen('overlay-show-recording', () => {
                 showState('recording');
                 startTimer();
+                // Reset VU meter for fresh recording
+                vuFill.style.width = '0%';
             });
 
             listen('overlay-show-processing', () => {
                 stopTimer();
                 showState('processing');
+                // Reset VU bar (element is hidden via display:none, reset is for next recording)
+                vuFill.style.width = '0%';
             });
 
             listen('overlay-show-done', () => {
@@ -174,6 +218,8 @@
             listen('overlay-hide', () => {
                 stopTimer();
                 document.querySelectorAll('.state').forEach(el => el.classList.remove('active'));
+                // Reset VU bar for next recording
+                vuFill.style.width = '0%';
             });
         }
 
