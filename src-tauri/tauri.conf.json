@@ -12,11 +12,12 @@
     "withGlobalTauri": true,
     "windows": [
       {
-        "title": "Scribe Settings",
+        "label": "main",
+        "title": "Scribe",
         "width": 600,
         "height": 800,
         "visible": false,
-        "skipTaskbar": true,
+        "skipTaskbar": false,
         "decorations": true,
         "resizable": true
       },
@@ -24,8 +25,8 @@
         "label": "overlay",
         "url": "overlay.html",
         "title": "Scribe Overlay",
-        "width": 280,
-        "height": 60,
+        "width": 140,
+        "height": 36,
         "visible": false,
         "decorations": false,
         "alwaysOnTop": true,
@@ -36,7 +37,7 @@
       }
     ],
     "security": {
-      "csp": null
+      "csp": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'"
     }
   },
   "bundle": {

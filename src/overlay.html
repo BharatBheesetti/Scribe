@@ -5,225 +5,132 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Scribe Overlay</title>
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
 
         html, body {
-            width: 280px;
-            height: 60px;
+            width: 140px;
+            height: 36px;
             overflow: hidden;
             background: transparent;
         }
 
-        .overlay {
-            width: 280px;
-            height: 60px;
-            background-color: rgba(26, 26, 26, 0.92);
-            border-radius: 12px;
-            display: flex;
+        .pill {
+            width: 140px;
+            height: 36px;
+            background: rgba(24, 24, 27, 0.94);
+            border-radius: 18px;
+            display: none;
             align-items: center;
-            padding: 0 16px;
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-            color: #ffffff;
-            gap: 12px;
-            border: 1px solid rgba(255, 255, 255, 0.08);
+            padding: 0 14px;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            color: #fff;
+            gap: 8px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
             user-select: none;
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
         }
 
-        /* Recording dot - pulsing red */
-        .indicator {
-            width: 14px;
-            height: 14px;
+        .pill.active {
+            display: flex;
+        }
+
+        /* Dot indicator */
+        .dot {
+            width: 10px;
+            height: 10px;
             border-radius: 50%;
             flex-shrink: 0;
         }
 
-        .indicator.recording {
-            background-color: #ef4444;
+        /* Recording: pulsing red dot */
+        .dot-rec {
+            background: #ef4444;
             animation: pulse 1.2s ease-in-out infinite;
+            box-shadow: 0 0 6px rgba(239, 68, 68, 0.6);
         }
 
-        .indicator.processing {
-            width: 14px;
-            height: 14px;
+        /* Processing: spinning yellow ring */
+        .dot-wait {
+            width: 10px;
+            height: 10px;
             border: 2px solid transparent;
             border-top-color: #facc15;
             border-right-color: #facc15;
-            border-radius: 50%;
-            animation: spin 0.8s linear infinite;
             background: none;
+            animation: spin 0.7s linear infinite;
         }
 
-        .indicator.done {
-            background-color: #22c55e;
+        /* Done: green dot with flash */
+        .dot-done {
+            background: #22c55e;
+            animation: flash 0.4s ease-out;
+            box-shadow: 0 0 6px rgba(34, 197, 94, 0.6);
         }
 
         @keyframes pulse {
             0%, 100% { opacity: 1; transform: scale(1); }
-            50% { opacity: 0.5; transform: scale(0.85); }
+            50% { opacity: 0.5; transform: scale(0.8); }
         }
 
         @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
+            to { transform: rotate(360deg); }
+        }
+
+        @keyframes flash {
+            0% { transform: scale(1.4); opacity: 0.7; }
+            100% { transform: scale(1); opacity: 1; }
         }
 
         .label {
-            font-size: 14px;
-            font-weight: 500;
-            color: #e5e5e5;
-            flex-shrink: 0;
-        }
-
-        .timer {
             font-size: 13px;
-            font-weight: 400;
-            color: #a3a3a3;
-            /* REMOVED: margin-left: auto -- conflicts with flex:1 VU meter */
-            font-variant-numeric: tabular-nums;
-            flex-shrink: 0;
+            font-weight: 600;
+            letter-spacing: 0.02em;
         }
-
-        /* VU meter bar */
-        .vu-meter {
-            flex: 1;
-            height: 6px;
-            background: rgba(255, 255, 255, 0.1);
-            border-radius: 3px;
-            overflow: hidden;
-            min-width: 40px;
-        }
-
-        .vu-meter-fill {
-            height: 100%;
-            width: 0%;
-            border-radius: 3px;
-            background: linear-gradient(90deg, #22c55e 0%, #22c55e 60%, #facc15 80%, #ef4444 100%);
-            transition: width 80ms ease-out;
-            will-change: width;
-        }
-
-        /* State visibility */
-        .state { display: none; }
-        .state.active { display: flex; align-items: center; width: 100%; gap: 12px; }
     </style>
 </head>
 <body>
-    <div class="overlay">
-        <div id="state-recording" class="state">
-            <div class="indicator recording"></div>
-            <span class="label">Recording...</span>
-            <div class="vu-meter">
-                <div class="vu-meter-fill" id="vu-fill"></div>
-            </div>
-            <span class="timer" id="timer">0:00</span>
-        </div>
-        <div id="state-processing" class="state">
-            <div class="indicator processing"></div>
-            <span class="label">Transcribing...</span>
-        </div>
-        <div id="state-done" class="state">
-            <div class="indicator done"></div>
-            <span class="label">Done</span>
-        </div>
+    <div id="pill-rec" class="pill">
+        <div class="dot dot-rec"></div>
+        <span class="label">Rec</span>
+    </div>
+    <div id="pill-wait" class="pill">
+        <div class="dot dot-wait"></div>
+        <span class="label">Wait</span>
+    </div>
+    <div id="pill-done" class="pill">
+        <div class="dot dot-done"></div>
+        <span class="label">Done</span>
     </div>
 
     <script>
-        // Timer state
-        let timerInterval = null;
-        let startTime = 0;
+        const pills = document.querySelectorAll('.pill');
 
-        function formatTime(seconds) {
-            const mins = Math.floor(seconds / 60);
-            const secs = seconds % 60;
-            return mins + ':' + String(secs).padStart(2, '0');
+        function showPill(id) {
+            pills.forEach(p => p.classList.remove('active'));
+            const target = document.getElementById('pill-' + id);
+            if (target) target.classList.add('active');
         }
 
-        function startTimer() {
-            stopTimer();
-            startTime = Date.now();
-            const timerEl = document.getElementById('timer');
-            timerEl.textContent = '0:00';
-            timerInterval = setInterval(() => {
-                const elapsed = Math.floor((Date.now() - startTime) / 1000);
-                timerEl.textContent = formatTime(elapsed);
-            }, 200);
+        function hideAll() {
+            pills.forEach(p => p.classList.remove('active'));
         }
 
-        function stopTimer() {
-            if (timerInterval) {
-                clearInterval(timerInterval);
-                timerInterval = null;
-            }
-        }
-
-        function showState(stateId) {
-            document.querySelectorAll('.state').forEach(el => el.classList.remove('active'));
-            const target = document.getElementById('state-' + stateId);
-            if (target) {
-                target.classList.add('active');
-            }
-        }
-
-        // Wait for Tauri to be ready, then listen for events
         function setupListeners() {
             const tauri = window.__TAURI__;
             if (!tauri || !tauri.event) {
-                // Retry until Tauri globals are available
                 setTimeout(setupListeners, 50);
                 return;
             }
 
             const { listen } = tauri.event;
 
-            // Cache VU meter element once (DOM is static)
-            const vuFill = document.getElementById('vu-fill');
-
-            // VU meter level updates (10Hz from Rust)
-            listen('audio-level', (event) => {
-                const level = event.payload;
-                // Convert RMS (0.0-1.0) to visual percentage using sqrt scaling.
-                // Raw RMS is perceptually too compressed -- sqrt makes quiet
-                // sounds more visible while still showing loud peaks.
-                // Gain factor 10.0 calibrated for typical USB mics.
-                // NOTE: ensure_mic_volume() auto-boosts mics to 100% system volume.
-                // If bar is always maxed during normal speech, reduce to 5.0 or 7.0.
-                const scaled = Math.min(Math.sqrt(level * 10.0), 1.0);
-                const pct = Math.round(scaled * 100);
-                vuFill.style.width = pct + '%';
-            });
-
-            listen('overlay-show-recording', () => {
-                showState('recording');
-                startTimer();
-                // Reset VU meter for fresh recording
-                vuFill.style.width = '0%';
-            });
-
-            listen('overlay-show-processing', () => {
-                stopTimer();
-                showState('processing');
-                // Reset VU bar (element is hidden via display:none, reset is for next recording)
-                vuFill.style.width = '0%';
-            });
-
-            listen('overlay-show-done', () => {
-                stopTimer();
-                showState('done');
-            });
-
-            listen('overlay-hide', () => {
-                stopTimer();
-                document.querySelectorAll('.state').forEach(el => el.classList.remove('active'));
-                // Reset VU bar for next recording
-                vuFill.style.width = '0%';
-            });
+            listen('overlay-show-recording', () => showPill('rec'));
+            listen('overlay-show-processing', () => showPill('wait'));
+            listen('overlay-show-done', () => showPill('done'));
+            listen('overlay-hide', () => hideAll());
         }
 
-        // Start listening when DOM is ready
         if (document.readyState === 'loading') {
             document.addEventListener('DOMContentLoaded', setupListeners);
         } else {

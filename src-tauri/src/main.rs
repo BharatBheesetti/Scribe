@@ -1,5 +1,6 @@
-// Prevents additional console window on Windows in release
-#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+// Suppress console window on Windows in all builds (including debug).
+// Developer debugging via Tauri DevTools; stdout/stderr are low-value.
+#![windows_subsystem = "windows"]
 
 mod audio;
 mod history;
@@ -32,6 +33,7 @@ struct AppState {
     history: Arc<Mutex<history::History>>,
     audio_level: Arc<AtomicU32>,  // Shared with AudioRecorder, lock-free VU meter
     sounds: sounds::SoundEffects, // Pre-generated WAV buffers, immutable after init
+    output_mode_override: Arc<Mutex<Option<String>>>, // Cursor-fallback clipboard-only override
 }
 
 // ---------------------------------------------------------------------------
@@ -365,8 +367,10 @@ fn main() {
             // A second instance tried to launch — focus our existing window
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.show();
+                let _ = window.unminimize();
                 let _ = window.set_focus();
             }
+            let _ = app.emit("show-homepage", ());
         }))
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
@@ -438,6 +442,7 @@ fn main() {
                 history: Arc::new(Mutex::new(loaded_history)),
                 audio_level,
                 sounds: sound_effects,
+                output_mode_override: Arc::new(Mutex::new(None)),
             };
 
             // Setup hotkeys using saved setting (not hardcoded)
@@ -624,7 +629,10 @@ fn main() {
                                         &app_handle,
                                         tray::TrayState::Recording,
                                     );
-                                    overlay::show_recording(&app_handle);
+                                    let used_fallback = overlay::show_recording(&app_handle);
+                                    if used_fallback {
+                                        *state.output_mode_override.lock().unwrap_or_else(|e| e.into_inner()) = Some("clipboard_only".to_string());
+                                    }
                                     if let Err(e) = hotkey::register_escape(&app_handle) {
                                         eprintln!("Failed to register escape hotkey: {}", e);
                                     }
@@ -720,6 +728,7 @@ fn main() {
                                     samples_result.unwrap()
                                 }
                                 PostRecordingAction::EmptyRecording => {
+                                    *state.output_mode_override.lock().unwrap_or_else(|e| e.into_inner()) = None;
                                     app_handle
                                         .notification()
                                         .builder()
@@ -735,6 +744,7 @@ fn main() {
                                     return;
                                 }
                                 PostRecordingAction::TooShort => {
+                                    *state.output_mode_override.lock().unwrap_or_else(|e| e.into_inner()) = None;
                                     println!("Recording too short");
                                     app_handle
                                         .notification()
@@ -751,6 +761,7 @@ fn main() {
                                     return;
                                 }
                                 PostRecordingAction::RecordingError(e) => {
+                                    *state.output_mode_override.lock().unwrap_or_else(|e| e.into_inner()) = None;
                                     eprintln!("Recording error: {}", e);
                                     app_handle
                                         .notification()
@@ -818,6 +829,12 @@ fn main() {
                                     let (filler_removal, language, output_mode) = {
                                         let s = state.settings.lock().unwrap_or_else(|e| e.into_inner());
                                         (s.filler_removal, s.language.clone(), s.output_mode.clone())
+                                    };
+
+                                    // Check for cursor-fallback override (clipboard-only when no cursor detected)
+                                    let output_mode = {
+                                        let override_val = state.output_mode_override.lock().unwrap_or_else(|e| e.into_inner()).take();
+                                        override_val.unwrap_or(output_mode)
                                     };
 
                                     // Post-process: filler removal + text cleanup
@@ -937,6 +954,7 @@ fn main() {
                         .lock()
                         .unwrap_or_else(|e| e.into_inner());
                     recorder.cancel_recording();
+                    *state.output_mode_override.lock().unwrap_or_else(|e| e.into_inner()) = None;
                     let _ = app_handle.emit("transcription-result", "");
                     let _ = tray::update_tray_state(&app_handle, tray::TrayState::Idle);
                     overlay::hide(&app_handle);
