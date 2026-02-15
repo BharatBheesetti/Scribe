@@ -53,27 +53,29 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| CICD-01 | — | Pending |
-| CICD-02 | — | Pending |
-| CICD-03 | — | Pending |
-| CICD-04 | — | Pending |
-| CICD-05 | — | Pending |
-| INST-01 | — | Pending |
-| INST-02 | — | Pending |
-| INST-03 | — | Pending |
-| INST-04 | — | Pending |
-| INST-05 | — | Pending |
-| WEB-01 | — | Pending |
-| WEB-02 | — | Pending |
-| WEB-03 | — | Pending |
-| WEB-04 | — | Pending |
-| WEB-05 | — | Pending |
+| CICD-01 | Phase 6 | Pending |
+| CICD-02 | Phase 6 | Pending |
+| CICD-03 | Phase 6 | Pending |
+| CICD-04 | Phase 6 | Pending |
+| CICD-05 | Phase 6 | Pending |
+| INST-01 | Phase 7 | Pending |
+| INST-02 | Phase 7 | Pending |
+| INST-03 | Phase 7 | Pending |
+| INST-04 | Phase 7 | Pending |
+| INST-05 | Phase 7 | Pending |
+| WEB-01 | Phase 8 | Pending |
+| WEB-02 | Phase 8 | Pending |
+| WEB-03 | Phase 8 | Pending |
+| WEB-04 | Phase 8 | Pending |
+| WEB-05 | Phase 8 | Pending |
 
 **Coverage:**
 - v1.1 requirements: 15 total
-- Mapped to phases: 0
-- Unmapped: 15 (pending roadmap)
+- Mapped to phases: 15 (100% coverage)
+- Phase 6 (CI/CD): 5 requirements
+- Phase 7 (Installer): 5 requirements
+- Phase 8 (Landing Page): 5 requirements
 
 ---
 *Requirements defined: 2026-02-16*
-*Last updated: 2026-02-16 after user scoping*
+*Last updated: 2026-02-16 after roadmap creation*
