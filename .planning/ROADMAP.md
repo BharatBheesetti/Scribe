@@ -44,10 +44,11 @@
   4. Tagged commits automatically create GitHub Release with installer attached
   5. Rust/cargo build cache reduces whisper.cpp compile time from 15+ minutes to under 5 minutes
   6. Release notes include changelog extracted from commits or CHANGELOG.md
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 06-01: [Description TBD during plan-phase]
+- [ ] 06-01-PLAN.md — Create release workflow and configure Tauri for CI builds
+- [ ] 06-02-PLAN.md — End-to-end pipeline verification (tag push, workflow run, release check)
 
 #### Phase 7: Installer
 **Goal**: Professional NSIS installer with branding, WebView2 bootstrapper, and clean install/uninstall
@@ -87,9 +88,9 @@ Phases execute in numeric order: 6 → 7 → 8
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
 | 1-5. v1.0 | v1.0 | All | Complete | 2026-02-13 |
-| 6. CI/CD Pipeline | v1.1 | 0/? | Not started | - |
+| 6. CI/CD Pipeline | v1.1 | 0/2 | Planning complete | - |
 | 7. Installer | v1.1 | 0/? | Not started | - |
 | 8. Landing Page | v1.1 | 0/? | Not started | - |
 
 ---
-*Last updated: 2026-02-16 after roadmap creation*
+*Last updated: 2026-02-16 after Phase 6 planning*
