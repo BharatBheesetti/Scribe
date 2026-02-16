@@ -1,0 +1,114 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+
+    steps:
+      # ========================================================================
+      # SETUP: Version extraction and sync
+      # ========================================================================
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Get version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+        shell: bash
+
+      - name: Sync version to Cargo.toml
+        run: sed -i "s/^version = \".*\"/version = \"${{ steps.version.outputs.VERSION }}\"/" src-tauri/Cargo.toml
+        shell: bash
+
+      - name: Verify version sync
+        run: |
+          grep -q "^version = \"${{ steps.version.outputs.VERSION }}\"" src-tauri/Cargo.toml || { echo "ERROR: Version sync failed"; exit 1; }
+        shell: bash
+
+      # ========================================================================
+      # TOOLCHAIN: Rust, LLVM (for whisper-rs), Node.js
+      # ========================================================================
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install LLVM
+        uses: KyleMayes/install-llvm-action@latest
+        with:
+          version: "18"
+
+      - name: Setup Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          cache-on-failure: true
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: npm
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      # ========================================================================
+      # TEST GATE: All 151 tests must pass before building
+      # ========================================================================
+
+      - name: Run tests
+        run: cargo test --manifest-path=src-tauri/Cargo.toml
+
+      # ========================================================================
+      # BUILD: Tauri NSIS installer + create GitHub Release
+      # ========================================================================
+
+      - name: Build and release
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: "Scribe ${{ steps.version.outputs.VERSION }}"
+          releaseBody: ""
+          releaseDraft: false
+          prerelease: false
+
+      # ========================================================================
+      # RELEASE NOTES: Auto-generate from commits since last tag
+      # ========================================================================
+
+      - name: Update release with auto-generated notes
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release edit ${{ github.ref_name }} --generate-notes
+        shell: bash
+
+      # ========================================================================
+      # CHECKSUMS: Generate SHA256 for all .exe files and upload
+      # ========================================================================
+
+      - name: Generate SHA256 checksums
+        run: |
+          cd src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis
+          $files = Get-ChildItem -Filter "*.exe"
+          foreach ($file in $files) {
+            $hash = (Get-FileHash $file -Algorithm SHA256).Hash
+            "$hash  $($file.Name)" | Add-Content -Path "SHA256SUMS.txt"
+          }
+        shell: pwsh
+
+      - name: Upload checksums to release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload ${{ github.ref_name }} src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/SHA256SUMS.txt --clobber
+        shell: bash
