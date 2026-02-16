@@ -1,6 +1,5 @@
 {
   "productName": "Scribe",
-  "version": "1.0.0",
   "identifier": "com.scribe.app",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -46,6 +45,9 @@
     "icon": [
       "icons/icon.png"
     ],
+    "nsis": {
+      "displayLanguageSelector": false
+    },
     "windows": {
       "certificateThumbprint": null,
       "digestAlgorithm": "sha256",
